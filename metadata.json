@@ -1,0 +1,6 @@
+{
+  "name": "FinVault - Personal Finance & Expense Tracker",
+  "description": "Production-grade personal finance, expense tracker, portfolio management, credit card EMI, and people ledger with confidential-only encryption and TOTP 2FA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

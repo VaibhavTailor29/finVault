@@ -1,0 +1,74 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: finvault_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: finvault_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: finVault@%7238
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d finvault_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finvault_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:finVault%40%257238@postgres:5432/finvault_db
+      - DATABASE_SYNC_URL=postgresql://postgres:finVault%40%257238@postgres:5432/finvault_db
+      - JWT_SECRET_KEY=uKlq5-kcZvDkJfvZt54PgZw_Bt1u2zLM8ZpDY2jc-t3G0zW5Q1NljmHjwMv7MiBs
+      - JWT_REFRESH_SECRET_KEY=H-5w5vUSW9shSa2YpSNE2CJ7ByC9OlRCZ-GyQySJf4kRilqHSCcrPH5nV_6AT3C_
+      - MASTER_ENCRYPTION_KEYS_JSON={"v1":"xq5SD1s9cPRxGUps98mxVGHWhJ8jF/tVUZRSMP+YQKE="}
+      - CURRENT_KEY_ID=v1
+      - ENCRYPT_AMOUNTS=false
+      - BLIND_INDEX_KEY=03d825e8b9c3f533a0ab81f9781305d9ddbb347a6811d8d508aedb1cb6175d27
+      - APP_URL=${APP_URL:-http://localhost:3000}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-FinVault}
+      - SMTP_TLS=${SMTP_TLS:-true}
+      - SMTP_SSL=${SMTP_SSL:-false}
+    volumes:
+      - ./server:/app/server
+    command: uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    image: node:20-alpine
+    container_name: finvault_frontend
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - .:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://api:8000
+    command: sh -c "npm install && npm run dev"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  frontend_node_modules:

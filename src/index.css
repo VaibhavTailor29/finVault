@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark, .dark *));
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  
+  :root.dark {
+    color-scheme: dark;
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  code, kbd, samp, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Universal Theme Styling for all Dropdowns & Select elements */
+select {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #171717;
+  border-color: #d4d4d8;
+}
+
+.dark select,
+html.dark select {
+  color-scheme: dark !important;
+  background-color: #171717 !important;
+  color: #f5f5f5 !important;
+  border-color: #3f3f46 !important;
+}
+
+select option {
+  background-color: #ffffff !important;
+  color: #171717 !important;
+  padding: 8px 12px;
+}
+
+.dark select option,
+html.dark select option {
+  background-color: #1c1917 !important;
+  color: #f5f5f5 !important;
+}
+
+select optgroup {
+  background-color: #f9fafb !important;
+  color: #6b7280 !important;
+  font-weight: 600;
+}
+
+.dark select optgroup,
+html.dark select optgroup {
+  background-color: #262626 !important;
+  color: #9ca3af !important;
+}
+
+/* Ensure focus states on select elements match the design system */
+select:focus {
+  outline: none;
+  border-color: #6366f1 !important;
+}
+
+.dark select:focus,
+html.dark select:focus {
+  border-color: #818cf8 !important;
+}
+
+/* Comprehensive Dark Mode Hover Protections */
+.dark .hover\:bg-neutral-50:hover {
+  background-color: #262626 !important;
+  color: #f5f5f5 !important;
+}
+
+.dark .hover\:bg-neutral-100:hover {
+  background-color: #262626 !important;
+  color: #f5f5f5 !important;
+}
+
+.dark .hover\:bg-neutral-50\/60:hover {
+  background-color: rgba(38, 38, 38, 0.5) !important;
+}
+
+.dark .hover\:text-neutral-900:hover {
+  color: #f5f5f5 !important;
+}
+
+.dark .hover\:text-neutral-800:hover {
+  color: #f5f5f5 !important;
+}
+
+.dark .hover\:text-neutral-700:hover {
+  color: #e5e5e5 !important;
+}
+
+.dark .hover\:text-neutral-600:hover {
+  color: #e5e5e5 !important;
+}
+
