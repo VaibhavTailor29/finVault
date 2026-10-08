@@ -113,6 +113,7 @@ export interface CreditCard {
   paymentDueDay: number;
   interestRate?: number;
   color: string;
+  network?: string;
   isClosed?: boolean;
   isDeleted?: boolean;
 }

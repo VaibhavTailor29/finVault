@@ -134,6 +134,7 @@ async def sync_all_data(
             "paymentDueDay": c.payment_due_day,
             "interestRate": float(ir) if ir else None,
             "color": c.color,
+            "network": getattr(c, "network", "visa") or "visa",
             "isClosed": bool(getattr(c, "is_closed", False)),
         })
 

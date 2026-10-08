@@ -62,6 +62,7 @@ async def list_cards(
             payment_due_day=c.payment_due_day,
             interest_rate=ir,
             color=c.color,
+            network=getattr(c, "network", "visa") or "visa",
             is_closed=bool(getattr(c, "is_closed", False)),
             current_outstanding=outstanding,
             available_credit=available,
@@ -91,6 +92,7 @@ async def create_card(
         payment_due_day=card.payment_due_day,
         interest_rate_encrypted=interest_rate_enc,
         color=card.color or "#1E293B",
+        network=card.network or "visa",
         is_closed=False,
         is_deleted=False
     )
@@ -107,6 +109,7 @@ async def create_card(
         payment_due_day=new_card.payment_due_day,
         interest_rate=card.interest_rate,
         color=new_card.color,
+        network=new_card.network or "visa",
         is_closed=False,
         current_outstanding=Decimal("0.00"),
         available_credit=card.credit_limit,
@@ -139,6 +142,8 @@ async def update_card(
         c.interest_rate_encrypted = CryptoService.encrypt_decimal(update_data.interest_rate, user_id, "credit_cards", "interest_rate")
     if update_data.color is not None:
         c.color = update_data.color
+    if update_data.network is not None:
+        c.network = update_data.network
     if update_data.is_closed is not None:
         c.is_closed = update_data.is_closed
 
@@ -158,6 +163,7 @@ async def update_card(
         payment_due_day=c.payment_due_day,
         interest_rate=ir,
         color=c.color,
+        network=getattr(c, "network", "visa") or "visa",
         is_closed=bool(getattr(c, "is_closed", False)),
         current_outstanding=Decimal("0.00"),
         available_credit=limit,

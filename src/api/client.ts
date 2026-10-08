@@ -18,12 +18,23 @@ import {
 
 const API_BASE = '/api';
 
+let currentStepUpToken: string | null = null;
+
+export function setStepUpToken(token: string | null) {
+  currentStepUpToken = token;
+}
+
+export function getStepUpToken(): string | null {
+  return currentStepUpToken;
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
   const token = typeof window !== 'undefined' ? localStorage.getItem('finvault_token') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(currentStepUpToken ? { 'X-Step-Up-Token': currentStepUpToken } : {}),
     ...((options.headers as Record<string, string>) || {}),
   };
 
@@ -133,6 +144,7 @@ export function toFrontendCreditCard(b: any): CreditCard {
     paymentDueDay: Number(b.paymentDueDay ?? b.payment_due_day ?? 15),
     interestRate: (b.interestRate ?? b.interest_rate) != null ? Number(b.interestRate ?? b.interest_rate) : undefined,
     color: b.color || '#1E293B',
+    network: b.network || 'visa',
     isClosed: Boolean(b.isClosed ?? b.is_closed),
     isDeleted: false,
   };
@@ -390,6 +402,7 @@ export const apiClient = {
       payment_due_day: card.paymentDueDay,
       interest_rate: card.interestRate || null,
       color: card.color || '#1E293B',
+      network: card.network || 'visa',
     };
     const res = await request<any>('/cards', {
       method: 'POST',
@@ -407,6 +420,7 @@ export const apiClient = {
     if (card.paymentDueDay !== undefined) payload.payment_due_day = card.paymentDueDay;
     if (card.interestRate !== undefined) payload.interest_rate = card.interestRate;
     if (card.color !== undefined) payload.color = card.color;
+    if (card.network !== undefined) payload.network = card.network;
     if (card.isClosed !== undefined) payload.is_closed = card.isClosed;
 
     const res = await request<any>(`/cards/${id}`, {
@@ -570,7 +584,22 @@ export const apiClient = {
   },
 
   async disable2FA(): Promise<void> {
-    await request<void>('/auth/2fa/disable', { method: 'POST' });
+    await request<any>('/auth/2fa/disable', { method: 'POST' });
+  },
+
+  setStepUpToken(token: string | null) {
+    setStepUpToken(token);
+  },
+
+  async verifyStepUp(code: string): Promise<{ step_up_token: string; message: string }> {
+    const res = await request<{ step_up_token: string; message: string }>('/auth/step-up', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    if (res?.step_up_token) {
+      setStepUpToken(res.step_up_token);
+    }
+    return res;
   },
 
   async logout(): Promise<void> {

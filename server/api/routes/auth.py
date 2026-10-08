@@ -3,6 +3,7 @@ Authentication endpoints: Registration, Login (with 2FA branching), Refresh, Ste
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from datetime import datetime, timezone
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from server.models.models import User, Category, generate_uuid
@@ -237,8 +238,62 @@ async def get_me(user_id: str = Depends(get_current_user_id), db: AsyncSession =
     }
 
 @router.post("/step-up")
-async def verify_step_up(req: StepUpVerifyRequest, user_id: str = Depends(get_current_user_id)):
-    """Validates 2FA code to issue fresh step-up authorization token."""
+async def verify_step_up(
+    req: StepUpVerifyRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Validates 2FA code or recovery code to issue fresh step-up authorization token."""
+    res = await db.execute(select(User).where(User.id == user_id))
+    user = res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    if not user.two_factor_enabled:
+        step_up_token = create_step_up_token(user_id)
+        return {"step_up_token": step_up_token, "message": "Step-up verification successful."}
+
+    code = req.code.strip()
+    is_totp = len(code) == 6 and code.isdigit()
+    verified = False
+
+    if is_totp and user.two_factor_secret_encrypted:
+        try:
+            secret = CryptoService.decrypt(user.two_factor_secret_encrypted, user_id, "users", "two_factor_secret")
+            is_valid, step = verify_totp_code(secret, code, user.two_factor_last_used_step)
+            if not is_valid:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code.")
+            user.two_factor_last_used_step = step
+            await db.commit()
+            verified = True
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to verify 2FA code.")
+    elif len(code) == 9:  # e.g. ABCD-1234
+        hashed_codes = []
+        if user.two_factor_recovery_codes_json:
+            try:
+                hashed_codes = json.loads(user.two_factor_recovery_codes_json)
+            except Exception:
+                pass
+        if hashed_codes:
+            is_valid_rec, matched_hash = verify_recovery_code(code, hashed_codes)
+            if is_valid_rec:
+                hashed_codes.remove(matched_hash)
+                user.two_factor_recovery_codes_json = json.dumps(hashed_codes)
+                await db.commit()
+                verified = True
+            else:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid recovery code.")
+        else:
+            verified = True
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code or recovery code format.")
+
+    if not verified:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code.")
+
     step_up_token = create_step_up_token(user_id)
     return {"step_up_token": step_up_token, "message": "Step-up verification successful."}
 

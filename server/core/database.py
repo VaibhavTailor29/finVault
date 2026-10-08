@@ -43,6 +43,7 @@ async def init_db():
         from sqlalchemy import text
         try:
             await conn.execute(text("ALTER TABLE credit_cards ADD COLUMN IF NOT EXISTS is_closed BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE credit_cards ADD COLUMN IF NOT EXISTS network VARCHAR(30) DEFAULT 'visa';"))
             await conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_recovery_codes_json TEXT;"))
         except Exception:

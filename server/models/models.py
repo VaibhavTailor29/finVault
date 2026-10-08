@@ -350,6 +350,7 @@ class CreditCard(Base):
     payment_due_day = Column(Integer, nullable=False)
     interest_rate_encrypted = Column(Text, nullable=True)
     color = Column(String(30), default="#1E293B", nullable=False)
+    network = Column(String(30), default="visa", nullable=True)
     is_closed = Column(Boolean, default=False, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
     deleted_at = Column(DateTime(timezone=True), nullable=True)

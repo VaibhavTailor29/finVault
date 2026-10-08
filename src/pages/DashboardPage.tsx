@@ -11,6 +11,7 @@ import { Modal } from '../components/common/Modal';
 import { CurrencyInput } from '../components/common/CurrencyInput';
 import { TagInput } from '../components/common/TagInput';
 import { CustomSelect } from '../components/common/CustomSelect';
+import { CardThumbnail, detectCardNetwork } from '../components/cards/CreditCardVisual';
 
 interface DashboardPageProps {
   onNavigate: (path: string) => void;
@@ -428,7 +429,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                 Manage
               </button>
             </div>
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               {creditCards.map((card) => {
                 const charged = nonDeletedExpenses
                   .filter((e) => e.cardId === card.id)
@@ -437,31 +438,66 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                   .filter((p) => p.cardId === card.id)
                   .reduce((sum, p) => sum + p.amount, 0);
                 const outstanding = Math.max(0, charged - paid);
+
+                const normNick = (card.nickname || '').trim();
+                const normIssuer = (card.issuer || '').trim();
+                const isSameIssuer =
+                  !normIssuer ||
+                  normNick.toLowerCase() === normIssuer.toLowerCase() ||
+                  normNick.toLowerCase().includes(normIssuer.toLowerCase());
+
                 return (
                   <div
                     key={card.id}
-                    className={`flex items-center justify-between rounded-lg bg-neutral-50 p-2.5 dark:bg-neutral-800/60 ${
+                    onClick={() => onNavigate('/cards')}
+                    className={`group flex items-center justify-between rounded-xl bg-neutral-50/80 p-2.5 dark:bg-neutral-800/40 border border-neutral-200/60 dark:border-neutral-700/50 hover:bg-neutral-100/70 dark:hover:bg-neutral-800/80 hover:border-indigo-300 dark:hover:border-indigo-500/50 transition-all cursor-pointer ${
                       card.isClosed ? 'opacity-60' : ''
                     }`}
                   >
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-xs font-medium text-neutral-800 dark:text-neutral-200 ${card.isClosed ? 'line-through text-neutral-400' : ''}`}>
-                          {card.nickname} (··{card.last4})
-                        </span>
-                        {card.isClosed && (
-                          <span className="text-[9px] px-1 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                            Closed
+                    <div className="flex items-center gap-3 min-w-0">
+                      {/* Compact Card Thumbnail */}
+                      <CardThumbnail card={card} />
+
+                      <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span
+                            className={`text-xs font-semibold text-neutral-800 dark:text-neutral-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors truncate ${
+                              card.isClosed ? 'line-through text-neutral-400' : ''
+                            }`}
+                          >
+                            {card.nickname}
                           </span>
-                        )}
+                          <span className="text-[10px] font-mono text-neutral-400 shrink-0">
+                            (··{card.last4})
+                          </span>
+                          {card.isClosed && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 shrink-0">
+                              Closed
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
+                          {isSameIssuer
+                            ? `Payment due on ${card.paymentDueDay}th`
+                            : `${card.issuer} · Due on ${card.paymentDueDay}th`}
+                        </span>
                       </div>
-                      <span className="text-[10px] text-neutral-400">
-                        Due Day: {card.paymentDueDay}th of month
+                    </div>
+
+                    <div className="text-right shrink-0 pl-3">
+                      <span
+                        className={`text-xs font-bold font-mono tabular-nums block ${
+                          outstanding > 0
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-emerald-600 dark:text-emerald-400'
+                        }`}
+                      >
+                        {formatCurrency(outstanding, currency, privacyMode)}
+                      </span>
+                      <span className="text-[9px] text-neutral-400 uppercase tracking-wider font-semibold">
+                        {outstanding > 0 ? 'Due' : 'Settled'}
                       </span>
                     </div>
-                    <span className="text-xs font-semibold font-mono tabular-nums text-rose-600 dark:text-rose-400">
-                      {formatCurrency(outstanding, currency, privacyMode)}
-                    </span>
                   </div>
                 );
               })}

@@ -22,8 +22,10 @@ import { CustomSelect } from '../components/common/CustomSelect';
 export const SettingsPage: React.FC = () => {
   const {
     user, updateProfile, enable2FA, disable2FA,
-    regenerateRecoveryCodes, sessions, revokeSession, logoutEverywhere, initSessions
+    regenerateRecoveryCodes, sessions, revokeSession, logoutEverywhere, initSessions, logout
   } = useAuthStore();
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+  const [isLogoutEverywhereConfirmOpen, setIsLogoutEverywhereConfirmOpen] = useState(false);
   const {
     currency, setCurrency, theme, setTheme,
     privacyMode, togglePrivacyMode, reminderDaysBeforeDue, setReminderDays,
@@ -307,8 +309,15 @@ export const SettingsPage: React.FC = () => {
                     triggerStepUp('Disable Two-Factor Authentication', async () => {
                       try {
                         await apiClient.disable2FA();
-                      } catch {}
-                      disable2FA();
+                        disable2FA();
+                        addNotification({
+                          title: 'Two-Factor Authentication Disabled',
+                          message: 'Two-factor authentication has been turned off for your account.',
+                          type: 'info',
+                        });
+                      } catch (err: any) {
+                        alert(err?.message || 'Failed to disable 2FA');
+                      }
                     })
                   }
                   className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60 transition-colors"
@@ -720,7 +729,7 @@ export const SettingsPage: React.FC = () => {
 
           {sessions.length > 1 && (
             <button
-              onClick={() => logoutEverywhere()}
+              onClick={() => setIsLogoutEverywhereConfirmOpen(true)}
               className="text-xs text-rose-600 hover:underline dark:text-rose-400"
             >
               Log out everywhere else
@@ -746,9 +755,17 @@ export const SettingsPage: React.FC = () => {
               </div>
 
               {sess.isCurrent ? (
-                <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-                  Current Device
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                    Current Device
+                  </span>
+                  <button
+                    onClick={() => setIsLogoutConfirmOpen(true)}
+                    className="text-xs text-rose-600 hover:underline dark:text-rose-400 cursor-pointer"
+                  >
+                    Log Out
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => revokeSession(sess.id)}
@@ -897,6 +914,30 @@ export const SettingsPage: React.FC = () => {
             setStepUpAction(null);
           }
         }}
+      />
+
+      {/* Confirm Log Out Dialog */}
+      <ConfirmDialog
+        isOpen={isLogoutConfirmOpen}
+        onClose={() => setIsLogoutConfirmOpen(false)}
+        onConfirm={logout}
+        title="Confirm Log Out"
+        message="Are you sure you want to log out of your FinVault account? You will need to sign in again to access your finances."
+        confirmLabel="Log Out"
+        cancelLabel="Cancel"
+        isDestructive={true}
+      />
+
+      {/* Confirm Log Out Everywhere Dialog */}
+      <ConfirmDialog
+        isOpen={isLogoutEverywhereConfirmOpen}
+        onClose={() => setIsLogoutEverywhereConfirmOpen(false)}
+        onConfirm={logoutEverywhere}
+        title="Confirm Log Out Everywhere"
+        message="Are you sure you want to log out all other active sessions and devices?"
+        confirmLabel="Log Out Everywhere"
+        cancelLabel="Cancel"
+        isDestructive={true}
       />
 
       {/* Import Backup Modal */}

@@ -224,6 +224,7 @@ class CreditCardCreate(BaseModel):
     payment_due_day: int = Field(ge=1, le=31)
     interest_rate: Optional[Decimal] = None
     color: str = "#1E293B"
+    network: Optional[str] = "visa"
 
     @field_validator("last4")
     def validate_last4(cls, v):
@@ -245,6 +246,7 @@ class CreditCardUpdate(BaseModel):
     payment_due_day: Optional[int] = None
     interest_rate: Optional[Decimal] = None
     color: Optional[str] = None
+    network: Optional[str] = None
     is_closed: Optional[bool] = None
 
 class CreditCardResponse(BaseModel):
@@ -257,6 +259,7 @@ class CreditCardResponse(BaseModel):
     payment_due_day: int
     interest_rate: Optional[Decimal] = None
     color: str
+    network: Optional[str] = "visa"
     is_closed: bool = False
     current_outstanding: Decimal
     available_credit: Decimal
