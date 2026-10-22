@@ -26,6 +26,7 @@ export const CategoriesTagsPage: React.FC = () => {
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
   const [editingCatId, setEditingCatId] = useState<string | null>(null);
   const [catName, setCatName] = useState('');
+  const [catNameError, setCatNameError] = useState<string | null>(null);
   const [catColor, setCatColor] = useState('#6366F1');
   const [catBudget, setCatBudget] = useState<number | ''>('');
   const [catToDelete, setCatToDelete] = useState<string | null>(null);
@@ -62,6 +63,7 @@ export const CategoriesTagsPage: React.FC = () => {
   const openAddCategory = () => {
     setEditingCatId(null);
     setCatName('');
+    setCatNameError(null);
     setCatColor('#6366F1');
     setCatBudget('');
     setIsCatModalOpen(true);
@@ -70,6 +72,7 @@ export const CategoriesTagsPage: React.FC = () => {
   const openEditCategory = (cat: any) => {
     setEditingCatId(cat.id);
     setCatName(cat.name);
+    setCatNameError(null);
     setCatColor(cat.color);
     setCatBudget(cat.monthlyBudget || '');
     setIsCatModalOpen(true);
@@ -77,7 +80,11 @@ export const CategoriesTagsPage: React.FC = () => {
 
   const handleSaveCategory = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!catName.trim()) return;
+    if (!catName.trim()) {
+      setCatNameError('Category name is required');
+      return;
+    }
+    setCatNameError(null);
 
     if (editingCatId) {
       updateCategory(editingCatId, {
@@ -93,6 +100,9 @@ export const CategoriesTagsPage: React.FC = () => {
         monthlyBudget: catBudget ? Number(catBudget) : undefined,
       });
     }
+    setCatName('');
+    setCatNameError(null);
+    setCatBudget('');
     setIsCatModalOpen(false);
   };
 
@@ -359,19 +369,24 @@ export const CategoriesTagsPage: React.FC = () => {
         onClose={() => setIsCatModalOpen(false)}
         title={editingCatId ? 'Edit Category' : 'Create Category'}
       >
-        <form onSubmit={handleSaveCategory} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleSaveCategory} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Category Name
+              Category Name *
             </label>
             <input
               type="text"
-              required
               value={catName}
-              onChange={(e) => setCatName(e.target.value)}
+              onChange={(e) => {
+                setCatName(e.target.value);
+                if (catNameError) setCatNameError(null);
+              }}
               placeholder="e.g. Fitness &amp; Gym"
-              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+              className={`w-full rounded-lg border bg-white px-3 py-2 text-xs text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 ${
+                catNameError ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+              }`}
             />
+            {catNameError && <p className="text-[11px] font-medium text-rose-500 mt-1">{catNameError}</p>}
           </div>
 
           <div>

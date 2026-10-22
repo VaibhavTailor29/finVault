@@ -19,6 +19,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; requires2FA?: boolean; error?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   verify2FA: (code: string) => Promise<{ success: boolean; error?: string }>;
+  verifyStepUp: (code: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   enable2FA: (secret: string, recoveryCodes: string[]) => void;
   disable2FA: () => void;
@@ -234,8 +235,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   verify2FA: async (code) => {
-    const { mfaToken } = get();
+    const { mfaToken, isAuthenticated } = get();
     if (!mfaToken) {
+      if (isAuthenticated) {
+        return await get().verifyStepUp(code);
+      }
       return { success: false, error: 'No pending 2FA authentication session.' };
     }
 
@@ -308,7 +312,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
 
+  verifyStepUp: async (code) => {
+    try {
+      const res = await apiClient.verifyStepUp(code.trim());
+      if (res && res.step_up_token) {
+        return { success: true };
+      }
+      return { success: false, error: 'Step-up authorization failed.' };
+    } catch (err: any) {
+      // Local fallback for offline/demo mode if client holds secret
+      const { totpSecret, recoveryCodes, lastUsedTimeStep } = get();
+      if (totpSecret) {
+        const cleanCode = code.trim();
+        if (cleanCode.length === 6) {
+          const valid = await verifyTOTP(totpSecret, cleanCode, lastUsedTimeStep);
+          if (valid.valid) {
+            set({ lastUsedTimeStep: valid.currentStep });
+            return { success: true };
+          }
+        } else if (recoveryCodes.includes(cleanCode)) {
+          set({ recoveryCodes: recoveryCodes.filter((c) => c !== cleanCode) });
+          return { success: true };
+        }
+      }
+      return { success: false, error: err.message || 'Invalid 2FA code.' };
+    }
+  },
+
   disable2FA: () => {
+    apiClient.setStepUpToken(null);
     set((state) => {
       const updatedUser = state.user ? { ...state.user, twoFactorEnabled: false } : null;
       if (typeof window !== 'undefined' && updatedUser) {
@@ -354,9 +386,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  updateProfile: (name, email) => {
-    set((state) => ({
-      user: state.user ? { ...state.user, name, email } : null,
-    }));
+  updateProfile: (_name, _email) => {
+    // Both username and email are permanent once registered and cannot be changed.
   },
 }));

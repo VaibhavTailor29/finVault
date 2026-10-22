@@ -26,9 +26,15 @@ class UserRegisterRequest(BaseModel):
     @field_validator("name")
     @classmethod
     def clean_name(cls, v: str) -> str:
-        clean = v.strip()
-        if len(clean) < 2:
-            raise ValueError("Full name must be at least 2 characters long.")
+        clean = v.strip().lower()
+        if len(clean) < 3:
+            raise ValueError("Username must be at least 3 characters long.")
+        if len(clean) > 20:
+            raise ValueError("Username must be at most 20 characters long.")
+        if not re.match(r"^[a-z0-9]", clean):
+            raise ValueError("Username must start with a letter or number.")
+        if not re.match(r"^[a-z0-9_.-]+$", clean):
+            raise ValueError("Username can only contain letters, numbers, underscores (_), dots (.), and hyphens (-). Spaces and special symbols are not allowed.")
         return clean
 
     @field_validator("email")
@@ -44,14 +50,17 @@ class UserRegisterRequest(BaseModel):
         return v
 
 class UserLoginRequest(BaseModel):
-    email: str
+    email: str  # Accepts either username or email address
     password: str
     remember_device: bool = False
 
     @field_validator("email")
     @classmethod
-    def clean_email(cls, v: str) -> str:
-        return validate_email_str(v)
+    def clean_identifier(cls, v: str) -> str:
+        clean = v.strip().lower()
+        if not clean:
+            raise ValueError("Please provide your username or email address.")
+        return clean
 
     @field_validator("password")
     @classmethod
@@ -202,6 +211,14 @@ class CategoryCreate(BaseModel):
     color: str = "#6366F1"
     monthly_budget: Optional[Decimal] = None
 
+    @field_validator("name")
+    @classmethod
+    def validate_cat_name(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError("Category name is required.")
+        return clean
+
 class CategoryResponse(BaseModel):
     id: str
     name: str
@@ -224,9 +241,27 @@ class CreditCardCreate(BaseModel):
     payment_due_day: int = Field(ge=1, le=31)
     interest_rate: Optional[Decimal] = None
     color: str = "#1E293B"
+    network: Optional[str] = "visa"
+
+    @field_validator("nickname")
+    @classmethod
+    def validate_nickname(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError("Card nickname is required.")
+        return clean
+
+    @field_validator("issuer")
+    @classmethod
+    def validate_issuer(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError("Card issuer is required.")
+        return clean
 
     @field_validator("last4")
-    def validate_last4(cls, v):
+    @classmethod
+    def validate_last4(cls, v: str) -> str:
         if not v.isdigit() or len(v) != 4:
             raise ValueError("Must provide exactly the last 4 digits of the card.")
         return v
@@ -245,6 +280,7 @@ class CreditCardUpdate(BaseModel):
     payment_due_day: Optional[int] = None
     interest_rate: Optional[Decimal] = None
     color: Optional[str] = None
+    network: Optional[str] = None
     is_closed: Optional[bool] = None
 
 class CreditCardResponse(BaseModel):
@@ -257,6 +293,7 @@ class CreditCardResponse(BaseModel):
     payment_due_day: int
     interest_rate: Optional[Decimal] = None
     color: str
+    network: Optional[str] = "visa"
     is_closed: bool = False
     current_outstanding: Decimal
     available_credit: Decimal
@@ -269,6 +306,14 @@ class PersonCreate(BaseModel):
     email: Optional[EmailStr] = None
     notes: Optional[str] = None
     avatar_color: str = "#10B981"
+
+    @field_validator("name")
+    @classmethod
+    def validate_person_name(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError("Contact name is required.")
+        return clean
 
 class LedgerEntryCreate(BaseModel):
     type: str  # lent, borrowed, settlement
@@ -289,18 +334,112 @@ class PersonResponse(BaseModel):
 
 # --- Investments ---
 class InvestmentCreate(BaseModel):
+    id: Optional[str] = None
     symbol: str
     name: str
-    asset_type: str  # Stock, ETF, Mutual Fund, Crypto, Gold, Fixed Deposit, Other
+    asset_type: str
+    institution: Optional[str] = None
+    interest_rate: Optional[float] = None
+    maturity_date: Optional[str] = None
+    tenure_years: Optional[float] = None
+    compounding_frequency: Optional[str] = None
+    monthly_deposit: Optional[float] = None
+    sip_day: Optional[int] = None
+    payout_frequency: Optional[str] = None
+    credit_rating: Optional[str] = None
+    category_tag: Optional[str] = None
+    units_or_grams: Optional[float] = None
+    is_sip_active: Optional[bool] = True
+    tax_section: Optional[str] = None
+    notes: Optional[str] = None
+
+    @field_validator("symbol")
+    @classmethod
+    def validate_symbol(cls, v: str) -> str:
+        clean = v.strip().upper()
+        if not clean:
+            raise ValueError("Ticker or symbol is required.")
+        return clean
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError("Full name is required.")
+        return clean
+
+class InvestmentUpdate(BaseModel):
+    symbol: Optional[str] = None
+    name: Optional[str] = None
+    asset_type: Optional[str] = None
+    institution: Optional[str] = None
+    interest_rate: Optional[float] = None
+    maturity_date: Optional[str] = None
+    tenure_years: Optional[float] = None
+    compounding_frequency: Optional[str] = None
+    monthly_deposit: Optional[float] = None
+    sip_day: Optional[int] = None
+    payout_frequency: Optional[str] = None
+    credit_rating: Optional[str] = None
+    category_tag: Optional[str] = None
+    units_or_grams: Optional[float] = None
+    is_sip_active: Optional[bool] = None
+    tax_section: Optional[str] = None
+    notes: Optional[str] = None
+
+class InvestmentResponse(BaseModel):
+    id: str
+    symbol: str
+    name: str
+    asset_type: str
+    institution: Optional[str] = None
+    interest_rate: Optional[float] = None
+    maturity_date: Optional[str] = None
+    tenure_years: Optional[float] = None
+    compounding_frequency: Optional[str] = None
+    monthly_deposit: Optional[float] = None
+    sip_day: Optional[int] = None
+    payout_frequency: Optional[str] = None
+    credit_rating: Optional[str] = None
+    category_tag: Optional[str] = None
+    units_or_grams: Optional[float] = None
+    is_sip_active: Optional[bool] = True
+    tax_section: Optional[str] = None
     notes: Optional[str] = None
 
 class InvestmentTransactionCreate(BaseModel):
+    id: Optional[str] = None
     investment_id: str
     type: str  # BUY, SELL, DIVIDEND, SPLIT
     quantity: Decimal
     price: Decimal
     fees: Decimal = Decimal("0.00")
     date: date
+    notes: Optional[str] = None
+
+    @field_validator("quantity")
+    @classmethod
+    def validate_quantity(cls, v: Decimal) -> Decimal:
+        if v <= Decimal("0"):
+            raise ValueError("Quantity must be greater than 0.")
+        return v
+
+    @field_validator("price")
+    @classmethod
+    def validate_price(cls, v: Decimal) -> Decimal:
+        if v <= Decimal("0"):
+            raise ValueError("Price must be greater than 0.")
+        return v
+
+class InvestmentTransactionResponse(BaseModel):
+    id: str
+    investment_id: str
+    type: str
+    quantity: float
+    price: float
+    fees: float
+    date: str
     notes: Optional[str] = None
 
 class HoldingResponse(BaseModel):
@@ -317,6 +456,42 @@ class HoldingResponse(BaseModel):
     unrealized_pnl_pct: Decimal
     realized_pnl: Decimal
     day_change_pct: Decimal
+
+class HoldingImportItem(BaseModel):
+    symbol: str
+    name: str
+    asset_type: str = "Stocks"
+    institution: Optional[str] = None
+    quantity: float
+    avg_buy_price: float
+    current_price: Optional[float] = None
+    category_tag: Optional[str] = None
+    tax_section: Optional[str] = None
+    notes: Optional[str] = None
+
+class BulkImportRequest(BaseModel):
+    holdings: List[HoldingImportItem]
+    mode: str = "merge"  # "merge" or "replace"
+
+class BulkImportResponse(BaseModel):
+    success: bool
+    imported_count: int
+    message: str
+
+class BrokerSyncRequest(BaseModel):
+    broker: str  # "dhan", "upstox", "angelone"
+    client_id: Optional[str] = None
+    access_token: str
+    pin_or_totp: Optional[str] = None
+
+class BrokerSyncResponse(BaseModel):
+    success: bool
+    broker: str
+    holdings: List[HoldingImportItem]
+    message: str
+
+class LivePricesRequest(BaseModel):
+    symbols: Optional[List[str]] = None
 
 # --- Reports ---
 class MonthlyReportResponse(BaseModel):
@@ -341,6 +516,14 @@ class AccountCreate(BaseModel):
     currency: str = "USD"
     color: str = "#4F46E5"
     reconciliation_date: Optional[date] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_acc_name(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError("Account name is required.")
+        return clean
 
 class AccountResponse(BaseModel):
     id: str

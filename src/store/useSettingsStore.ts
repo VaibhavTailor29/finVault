@@ -10,8 +10,12 @@ interface SettingsState {
   emailCardDues: boolean;
   emailRecurringDues: boolean;
   emailDebtDues: boolean;
+  marketRegion: string;
+  autoMarketHoursSync: boolean;
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setCurrency: (currency: string) => void;
+  setMarketRegion: (region: string) => void;
+  setAutoMarketHoursSync: (enabled: boolean) => void;
   togglePrivacyMode: () => void;
   setReminderDays: (days: number) => void;
   setEmailRemindersEnabled: (enabled: boolean) => void;
@@ -46,6 +50,8 @@ export const useSettingsStore = create<SettingsState>((set) => {
   const savedCardDues = localStorage.getItem('finvault_email_card_dues') !== 'false';
   const savedRecurringDues = localStorage.getItem('finvault_email_rec_dues') !== 'false';
   const savedDebtDues = localStorage.getItem('finvault_email_debt_dues') !== 'false';
+  const savedMarketRegion = localStorage.getItem('finvault_market_region') || 'IN';
+  const savedAutoMarketHours = localStorage.getItem('finvault_auto_market_hours') !== 'false';
 
   // Apply immediately on store initialization
   applyThemeToDOM(savedTheme);
@@ -70,6 +76,8 @@ export const useSettingsStore = create<SettingsState>((set) => {
     emailCardDues: savedCardDues,
     emailRecurringDues: savedRecurringDues,
     emailDebtDues: savedDebtDues,
+    marketRegion: savedMarketRegion,
+    autoMarketHoursSync: savedAutoMarketHours,
 
     setTheme: (theme) => {
       localStorage.setItem('finvault_theme', theme);
@@ -81,6 +89,14 @@ export const useSettingsStore = create<SettingsState>((set) => {
       localStorage.setItem('finvault_currency', currency);
       localStorage.setItem('kuber_currency', currency);
       set({ currency });
+    },
+    setMarketRegion: (region) => {
+      localStorage.setItem('finvault_market_region', region);
+      set({ marketRegion: region });
+    },
+    setAutoMarketHoursSync: (enabled) => {
+      localStorage.setItem('finvault_auto_market_hours', String(enabled));
+      set({ autoMarketHoursSync: enabled });
     },
     togglePrivacyMode: () => {
       set((state) => {

@@ -15,6 +15,7 @@ export const IncomePage: React.FC = () => {
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [amount, setAmount] = useState<number | ''>('');
+  const [amountError, setAmountError] = useState<string | null>(null);
   const [source, setSource] = useState<IncomeSource>('Salary');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [note, setNote] = useState('');
@@ -27,7 +28,11 @@ export const IncomePage: React.FC = () => {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || Number(amount) <= 0) return;
+    if (!amount || Number(amount) <= 0) {
+      setAmountError('Please enter a valid amount greater than ₹0');
+      return;
+    }
+    setAmountError(null);
     addIncome({
       amount: Number(amount),
       source,
@@ -39,6 +44,7 @@ export const IncomePage: React.FC = () => {
       accountId: accountId || undefined,
     });
     setAmount('');
+    setAmountError(null);
     setNote('');
     setTags([]);
     setAccountId(accounts[0]?.id || '');
@@ -116,12 +122,20 @@ export const IncomePage: React.FC = () => {
 
       {/* Add Income Modal */}
       <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Record Income">
-        <form onSubmit={handleCreate} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleCreate} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Amount
+              Amount *
             </label>
-            <CurrencyInput value={amount} onChange={setAmount} required />
+            <CurrencyInput
+              value={amount}
+              onChange={(val) => {
+                setAmount(val);
+                if (amountError) setAmountError(null);
+              }}
+              hasError={!!amountError}
+            />
+            {amountError && <p className="text-[11px] font-medium text-rose-500 mt-1">{amountError}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -150,7 +164,6 @@ export const IncomePage: React.FC = () => {
               </label>
               <input
                 type="date"
-                required
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 className="w-full rounded-lg border border-neutral-300 bg-white p-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"

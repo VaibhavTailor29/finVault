@@ -18,12 +18,17 @@ import { OtpInput } from '../components/security/OtpInput';
 import { RecoveryCodesDialog } from '../components/security/RecoveryCodesDialog';
 import { StepUpDialog } from '../components/security/StepUpDialog';
 import { CustomSelect } from '../components/common/CustomSelect';
+import { SUPPORTED_MARKETS, getMarketStatus } from '../utils/marketHours';
 
 export const SettingsPage: React.FC = () => {
   const {
-    user, updateProfile, enable2FA, disable2FA,
-    regenerateRecoveryCodes, sessions, revokeSession, logoutEverywhere, initSessions
+    user, enable2FA, disable2FA,
+    regenerateRecoveryCodes, sessions, revokeSession, logoutEverywhere, initSessions, logout
   } = useAuthStore();
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+  const [isLogoutEverywhereConfirmOpen, setIsLogoutEverywhereConfirmOpen] = useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const {
     currency, setCurrency, theme, setTheme,
     privacyMode, togglePrivacyMode, reminderDaysBeforeDue, setReminderDays,
@@ -31,17 +36,17 @@ export const SettingsPage: React.FC = () => {
     reminderEmail, setReminderEmail,
     emailCardDues, setEmailCardDues,
     emailRecurringDues, setEmailRecurringDues,
-    emailDebtDues, setEmailDebtDues
+    emailDebtDues, setEmailDebtDues,
+    marketRegion, setMarketRegion,
+    autoMarketHoursSync, setAutoMarketHoursSync
   } = useSettingsStore();
   const {
     exportAllData, importAllData, clearAllData,
-    checkAndGenerateDueReminders, addNotification
+    checkAndGenerateDueReminders, addNotification,
+    syncWithMarketHours
   } = useFinanceStore();
 
-  // Profile Form
-  const [profileName, setProfileName] = useState(user?.name || '');
-  const [profileEmail, setProfileEmail] = useState(user?.email || '');
-  const [profileSaved, setProfileSaved] = useState(false);
+
 
   // Email Reminders
   const [localReminderEmail, setLocalReminderEmail] = useState(reminderEmail || user?.email || '');
@@ -84,18 +89,14 @@ export const SettingsPage: React.FC = () => {
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [backupStatusMessage, setBackupStatusMessage] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   useEffect(() => {
     initSessions();
     apiClient.getReminderStatus().then(setSmtpStatus).catch(() => {});
   }, [initSessions]);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
-    e.preventDefault();
-    updateProfile(profileName, profileEmail);
-    setProfileSaved(true);
-    setTimeout(() => setProfileSaved(false), 2000);
-  };
+
 
   const handleSendTestEmail = async () => {
     const target = (localReminderEmail || user?.email || '').trim();
@@ -223,6 +224,11 @@ export const SettingsPage: React.FC = () => {
 
   const handleImportBackup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!importJsonText.trim()) {
+      setImportError('Please enter or paste your backup JSON payload.');
+      return;
+    }
+    setImportError(null);
     try {
       let jsonToParse = importJsonText.trim();
       if (backupPassphrase.trim() && (jsonToParse.includes('finvault_enc_v1') || jsonToParse.includes('kuber_enc_v1'))) {
@@ -232,10 +238,11 @@ export const SettingsPage: React.FC = () => {
       importAllData(parsed, importMode);
       setIsImportModalOpen(false);
       setImportJsonText('');
+      setImportError(null);
       setBackupStatusMessage(`Backup successfully imported with mode '${importMode}'.`);
       setTimeout(() => setBackupStatusMessage(null), 3000);
     } catch (err) {
-      alert('Failed to import backup: Invalid JSON or incorrect passphrase.');
+      setImportError('Failed to import backup: Invalid JSON or incorrect passphrase.');
     }
   };
 
@@ -276,11 +283,11 @@ export const SettingsPage: React.FC = () => {
             </div>
             <div>
               <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                Two-Factor Authentication (RFC 6238 TOTP)
+                Two-Factor Authentication (2FA)
               </h3>
               <p className="text-xs text-neutral-500">
                 {user?.twoFactorEnabled
-                  ? 'Active · TOTP code required at login and step-up authorization'
+                  ? 'Active · Verification code required at login and authorization'
                   : 'Disabled · Protect your financial records with an authenticator app'}
               </p>
             </div>
@@ -307,8 +314,15 @@ export const SettingsPage: React.FC = () => {
                     triggerStepUp('Disable Two-Factor Authentication', async () => {
                       try {
                         await apiClient.disable2FA();
-                      } catch {}
-                      disable2FA();
+                        disable2FA();
+                        addNotification({
+                          title: 'Two-Factor Authentication Disabled',
+                          message: 'Two-factor authentication has been turned off for your account.',
+                          type: 'info',
+                        });
+                      } catch (err: any) {
+                        alert(err?.message || 'Failed to disable 2FA');
+                      }
                     })
                   }
                   className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/60 transition-colors"
@@ -344,17 +358,17 @@ export const SettingsPage: React.FC = () => {
               </span>
             </div>
             <p className="mt-1 text-xs text-neutral-500 leading-relaxed">
-              Only strictly confidential and necessary secrets are protected (TOTP seed keys, password hashes, recovery codes, and sensitive personal notes). Overhead on transactional amounts, budgets, and card last 4 digits has been removed to maximize database speed and enable native mathematical aggregations without delay.
+              Your security keys, passwords, recovery codes, and sensitive personal notes are encrypted, while calculations and portfolio charts remain instantaneous.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
               <span className="rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 font-mono text-neutral-600 dark:text-neutral-300">
-                2FA Secrets: Protected
+                2FA: Protected
               </span>
               <span className="rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 font-mono text-neutral-600 dark:text-neutral-300">
-                Passwords: Argon2id
+                Passwords: Securely Hashed
               </span>
               <span className="rounded bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 font-mono text-emerald-700 dark:text-emerald-300">
-                Amounts: Native High-Precision Decimal
+                Amounts: High-Precision Calculation
               </span>
             </div>
           </div>
@@ -363,48 +377,68 @@ export const SettingsPage: React.FC = () => {
 
       {/* Profile & Identity */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 shadow-xs">
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-4">
-          Profile &amp; Account
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+              Account Identity
+            </h3>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              Your registered credentials are cryptographically bound to your financial vault and cannot be modified.
+            </p>
+          </div>
+          <span className="self-start sm:self-auto inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+            <Lock className="h-3 w-3 text-neutral-500" /> Locked &amp; Permanent
+          </span>
+        </div>
 
-        <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                Full Name
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                Username
               </label>
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-neutral-400">
+                <Lock className="h-3 w-3" /> Permanent
+              </span>
+            </div>
+            <div className="relative">
               <input
                 type="text"
-                required
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                className="w-full rounded-lg border border-neutral-300 bg-white p-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                disabled
+                readOnly
+                value={user?.name || ''}
+                className="w-full rounded-lg border border-neutral-200 bg-neutral-100/80 p-2 pl-2.5 pr-8 text-xs text-neutral-500 cursor-not-allowed select-none dark:border-neutral-800 dark:bg-neutral-800/60 dark:text-neutral-400 font-medium"
               />
+              <Lock className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400" />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+            <p className="mt-1 text-[11px] text-neutral-400">
+              Username cannot be changed after registration.
+            </p>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300">
                 Email Address
               </label>
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-neutral-400">
+                <Lock className="h-3 w-3" /> Permanent
+              </span>
+            </div>
+            <div className="relative">
               <input
                 type="email"
-                required
-                value={profileEmail}
-                onChange={(e) => setProfileEmail(e.target.value)}
-                className="w-full rounded-lg border border-neutral-300 bg-white p-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                disabled
+                readOnly
+                value={user?.email || ''}
+                className="w-full rounded-lg border border-neutral-200 bg-neutral-100/80 p-2 pl-2.5 pr-8 text-xs text-neutral-500 cursor-not-allowed select-none dark:border-neutral-800 dark:bg-neutral-800/60 dark:text-neutral-400 font-medium"
               />
+              <Lock className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400" />
             </div>
+            <p className="mt-1 text-[11px] text-neutral-400">
+              Email address cannot be changed after registration.
+            </p>
           </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 rounded-lg bg-neutral-900 px-4 py-2 text-xs font-semibold text-white hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 shadow-xs"
-            >
-              {profileSaved ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
-              {profileSaved ? 'Profile Updated' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
 
       {/* Preferences & Privacy Mode */}
@@ -508,26 +542,91 @@ export const SettingsPage: React.FC = () => {
             />
           </div>
 
-          {/* Interface Theme */}
+          {/* Market & Country Timezone */}
+          <div className="py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="font-semibold text-neutral-900 dark:text-neutral-100 block">
+                  Market &amp; Country Timezone
+                </span>
+                <span className="text-neutral-400">
+                  Controls trading session hours &amp; auto live tracker scheduling
+                </span>
+              </div>
+              <CustomSelect
+                value={marketRegion}
+                onChange={(val) => {
+                  setMarketRegion(val);
+                  syncWithMarketHours(val, autoMarketHoursSync);
+                }}
+                size="sm"
+                align="right"
+                options={SUPPORTED_MARKETS.map((m) => ({
+                  value: m.id,
+                  label: `${m.flag} ${m.country} (${m.timezoneLabel.split(' ')[0]})`,
+                }))}
+              />
+            </div>
+
+            {/* Live Market Hours Status Pill */}
+            {(() => {
+              const status = getMarketStatus(marketRegion);
+              return (
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 p-2 rounded-lg bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200/60 dark:border-neutral-700/60">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      status.isOpen
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                        : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        status.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                      }`}
+                    />
+                    {status.statusText} • {status.localTimeFormatted}
+                  </span>
+                  <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                    {status.reason}
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Auto-sync Live Tracker with Market Hours */}
           <div className="flex items-center justify-between py-2 border-b border-neutral-100 dark:border-neutral-800">
             <div>
               <span className="font-semibold text-neutral-900 dark:text-neutral-100 block">
-                Theme Appearance
+                Auto-sync Live Tracker with Market Hours
               </span>
-              <span className="text-neutral-400">Select interface appearance (light, dark, or system)</span>
+              <span className="text-neutral-400">
+                Automatically activates Live Ticker during trading sessions and turns it off after market close
+              </span>
             </div>
-            <CustomSelect
-              value={theme}
-              onChange={(val) => setTheme(val as 'light' | 'dark' | 'system')}
-              size="sm"
-              align="right"
-              options={[
-                { value: 'light', label: 'Light Theme', icon: <Sun className="h-3.5 w-3.5 text-amber-500" /> },
-                { value: 'dark', label: 'Dark Theme', icon: <Moon className="h-3.5 w-3.5 text-indigo-400" /> },
-                { value: 'system', label: 'System Default', icon: <Monitor className="h-3.5 w-3.5 text-neutral-400" /> },
-              ]}
-            />
+            <button
+              type="button"
+              onClick={() => {
+                const next = !autoMarketHoursSync;
+                setAutoMarketHoursSync(next);
+                syncWithMarketHours(marketRegion, next);
+              }}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-semibold transition-colors cursor-pointer ${
+                autoMarketHoursSync
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                  : 'border-neutral-300 bg-white text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200'
+              }`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  autoMarketHoursSync ? 'bg-emerald-500 animate-pulse' : 'bg-neutral-400'
+                }`}
+              />
+              {autoMarketHoursSync ? 'Enabled' : 'Disabled'}
+            </button>
           </div>
+
 
           {/* Due Date Reminders */}
           <div className="flex items-center justify-between py-2">
@@ -720,7 +819,7 @@ export const SettingsPage: React.FC = () => {
 
           {sessions.length > 1 && (
             <button
-              onClick={() => logoutEverywhere()}
+              onClick={() => setIsLogoutEverywhereConfirmOpen(true)}
               className="text-xs text-rose-600 hover:underline dark:text-rose-400"
             >
               Log out everywhere else
@@ -746,9 +845,17 @@ export const SettingsPage: React.FC = () => {
               </div>
 
               {sess.isCurrent ? (
-                <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-                  Current Device
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                    Current Device
+                  </span>
+                  <button
+                    onClick={() => setIsLogoutConfirmOpen(true)}
+                    className="text-xs text-rose-600 hover:underline dark:text-rose-400 cursor-pointer"
+                  >
+                    Log Out
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => revokeSession(sess.id)}
@@ -808,15 +915,18 @@ export const SettingsPage: React.FC = () => {
         </p>
         <button
           type="button"
-          onClick={() => {
-            if (window.confirm("Are you sure you want to permanently clear all data and start completely fresh?")) {
-              clearAllData();
-              window.location.reload();
-            }
-          }}
-          className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-500 shadow-xs transition-colors cursor-pointer"
+          disabled={isResetting}
+          onClick={() => setIsResetConfirmOpen(true)}
+          className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs transition-colors cursor-pointer"
         >
-          Clear All Stored Data
+          {isResetting ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Resetting Stored Data...
+            </>
+          ) : (
+            'Clear All Stored Data'
+          )}
         </button>
       </div>
 
@@ -833,7 +943,7 @@ export const SettingsPage: React.FC = () => {
             <>
               <QrCodeCard
                 secret={generatedSecret}
-                email={user?.email || profileEmail}
+                email={user?.email || ''}
                 qrSvg={backendQrSvg}
               />
               <button
@@ -845,7 +955,7 @@ export const SettingsPage: React.FC = () => {
               </button>
             </>
           ) : (
-            <form onSubmit={handleVerifyAndEnable2FA} className="flex flex-col gap-4 text-center">
+            <form noValidate onSubmit={handleVerifyAndEnable2FA} className="flex flex-col gap-4 text-center">
               <p className="text-xs text-neutral-600 dark:text-neutral-400">
                 Enter the 6-digit code currently shown in your authenticator app to confirm setup.
               </p>
@@ -899,6 +1009,58 @@ export const SettingsPage: React.FC = () => {
         }}
       />
 
+      {/* Confirm Log Out Dialog */}
+      <ConfirmDialog
+        isOpen={isLogoutConfirmOpen}
+        onClose={() => setIsLogoutConfirmOpen(false)}
+        onConfirm={logout}
+        title="Confirm Log Out"
+        message="Are you sure you want to log out of your FinVault account? You will need to sign in again to access your finances."
+        confirmLabel="Log Out"
+        cancelLabel="Cancel"
+        isDestructive={true}
+      />
+
+      {/* Confirm Log Out Everywhere Dialog */}
+      <ConfirmDialog
+        isOpen={isLogoutEverywhereConfirmOpen}
+        onClose={() => setIsLogoutEverywhereConfirmOpen(false)}
+        onConfirm={logoutEverywhere}
+        title="Confirm Log Out Everywhere"
+        message="Are you sure you want to log out all other active sessions and devices?"
+        confirmLabel="Log Out Everywhere"
+        cancelLabel="Cancel"
+        isDestructive={true}
+      />
+
+      {/* Confirm Reset All Data Dialog */}
+      <ConfirmDialog
+        isOpen={isResetConfirmOpen}
+        onClose={() => setIsResetConfirmOpen(false)}
+        onConfirm={async () => {
+          setIsResetting(true);
+          try {
+            await clearAllData();
+            addNotification({
+              title: 'Vault Reset Complete',
+              message: 'All your accounts, transactions, cards, and investments have been permanently cleared.',
+              type: 'info',
+            });
+            setTimeout(() => {
+              window.location.reload();
+            }, 600);
+          } catch (err) {
+            console.error('Failed to reset all data:', err);
+            setIsResetting(false);
+          }
+        }}
+        title="Permanently Reset All Data?"
+        message="This will permanently delete all your accounts, transactions, cards, investments, budgets, and loans from your vault. Your login credentials will remain intact, and fresh default categories will be prepared. This action CANNOT be undone."
+        confirmLabel="Yes, Clear All Data"
+        cancelLabel="Cancel"
+        isDestructive={true}
+      />
+
       {/* Import Backup Modal */}
       <Modal
         isOpen={isImportModalOpen}
@@ -906,7 +1068,7 @@ export const SettingsPage: React.FC = () => {
         title="Restore or Import Backup"
         subtitle="Paste JSON or enter backup envelope"
       >
-        <form onSubmit={handleImportBackup} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleImportBackup} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
               Import Mode
@@ -952,16 +1114,23 @@ export const SettingsPage: React.FC = () => {
 
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Backup JSON Payload
+              Backup JSON Payload *
             </label>
             <textarea
-              required
               rows={6}
               value={importJsonText}
-              onChange={(e) => setImportJsonText(e.target.value)}
+              onChange={(e) => {
+                setImportJsonText(e.target.value);
+                if (importError) setImportError(null);
+              }}
               placeholder='Paste {"version": "1.0", ...} or {"version": "finvault_enc_v1", ...}'
-              className="w-full rounded-lg border border-neutral-300 bg-white p-2 font-mono text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+              className={`w-full rounded-lg border bg-white p-2 font-mono text-xs text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 ${
+                importError ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+              }`}
             />
+            {importError && (
+              <p className="text-[11px] font-medium text-rose-500 mt-1">{importError}</p>
+            )}
           </div>
 
           <div className="flex justify-end gap-3 pt-3 border-t border-neutral-100 dark:border-neutral-800">

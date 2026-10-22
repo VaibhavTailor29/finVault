@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, TrendingUp, PieChart,
   Tag, CreditCard, Users, Landmark, FileText, CalendarClock,
   Upload, Settings, ShieldCheck, ShieldAlert, LogOut
 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 
 interface SidebarProps {
   currentPath: string;
@@ -13,6 +14,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => {
   const { user, logout } = useAuthStore();
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -84,14 +86,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => 
                 {user?.twoFactorEnabled ? '2FA Enabled' : '2FA Recommended'}
               </span>
               <span className="text-[10px] text-neutral-400">
-                {user?.twoFactorEnabled ? 'TOTP Active' : 'Setup now'}
+                {user?.twoFactorEnabled ? '2FA Active' : 'Setup now'}
               </span>
             </div>
           </div>
           <button
             onClick={(e) => {
               e.stopPropagation();
-              logout();
+              setIsLogoutConfirmOpen(true);
             }}
             title="Log out"
             className="text-neutral-400 hover:text-rose-600 transition-colors p-1"
@@ -100,6 +102,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => 
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={isLogoutConfirmOpen}
+        onClose={() => setIsLogoutConfirmOpen(false)}
+        onConfirm={logout}
+        title="Confirm Log Out"
+        message="Are you sure you want to log out of your FinVault account? You will need to sign in again to access your finances."
+        confirmLabel="Log Out"
+        cancelLabel="Cancel"
+        isDestructive={true}
+      />
     </aside>
   );
 };

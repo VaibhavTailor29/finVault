@@ -5,7 +5,7 @@ and batch undo mechanisms.
 """
 import csv
 import hashlib
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from decimal import Decimal
 from datetime import datetime, date, timedelta
 from rapidfuzz import fuzz

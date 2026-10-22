@@ -6,7 +6,36 @@ export type RecurringFrequency = 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
 
 export type LedgerType = 'lent' | 'borrowed' | 'settlement';
 
-export type AssetType = 'Stock' | 'ETF' | 'Mutual Fund' | 'Crypto' | 'Gold' | 'Fixed Deposit' | 'Other';
+export type AssetType =
+  | 'Stock'
+  | 'ETF'
+  | 'Mutual Fund'
+  | 'Fixed Deposit'
+  | 'Recurring Deposit'
+  | 'Sovereign Gold Bond'
+  | 'Gold'
+  | 'Government Bond'
+  | 'Corporate Bond'
+  | 'REIT'
+  | 'InvIT'
+  | 'Real Estate'
+  | 'PPF'
+  | 'NPS'
+  | 'EPF'
+  | 'Crypto'
+  | 'P2P Lending'
+  | 'Other';
+
+export type InvestmentCategory =
+  | 'all'
+  | 'stocks'
+  | 'mutual_funds'
+  | 'fixed_income'
+  | 'gold_sgb'
+  | 'bonds'
+  | 'reits'
+  | 'retirement'
+  | 'crypto_alt';
 
 export type InvestmentTxType = 'BUY' | 'SELL' | 'DIVIDEND' | 'SPLIT';
 
@@ -61,6 +90,13 @@ export interface Tag {
   color: string;
 }
 
+export interface ExpenseSplit {
+  personId: string;
+  amount: number;
+  percentage?: number;
+  dueDate?: string;
+}
+
 export interface Expense {
   id: string;
   amount: number;
@@ -75,6 +111,7 @@ export interface Expense {
   isRecurring?: boolean;
   recurringFrequency?: RecurringFrequency;
   isSplit?: boolean;
+  splits?: ExpenseSplit[];
   taxSection?: string; // 80C, 80D, etc.
   isDeleted?: boolean;
   deletedAt?: string;
@@ -113,6 +150,7 @@ export interface CreditCard {
   paymentDueDay: number;
   interestRate?: number;
   color: string;
+  network?: string;
   isClosed?: boolean;
   isDeleted?: boolean;
 }
@@ -169,6 +207,18 @@ export interface Investment {
   taxSection?: string;
   notes?: string;
   isDeleted?: boolean;
+  institution?: string;           // Bank / AMC / Broker / Issuer
+  interestRate?: number;          // e.g. 7.5% for FD, 2.5% for SGB, 7.1% for PPF
+  maturityDate?: string;          // e.g. 2028-08-12
+  tenureYears?: number;           // e.g. 5
+  compoundingFrequency?: 'Monthly' | 'Quarterly' | 'Cumulative';
+  monthlyDeposit?: number;        // For RD, SIP, PPF
+  sipDay?: number;                // e.g. 10th of every month
+  payoutFrequency?: 'Monthly' | 'Quarterly' | 'Semi-Annual' | 'Annual' | 'At Maturity';
+  creditRating?: string;          // AAA, AA+, Sovereign
+  categoryTag?: string;           // Large Cap, Flexi Cap, Commercial REIT, SGB Tranche
+  unitsOrGrams?: number;          // Gold grams, REIT units
+  isSipActive?: boolean;
 }
 
 export interface InvestmentTransaction {

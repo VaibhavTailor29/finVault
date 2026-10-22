@@ -1,14 +1,24 @@
 import React, { useState } from 'react';
 import {
   CreditCard as CardIcon, Plus, AlertCircle, AlertTriangle, CheckCircle2,
-  Calendar, ArrowRight, DollarSign, Layers, Clock, Trash2, Archive, ArchiveRestore
+  Calendar, ArrowRight, DollarSign, Layers, Clock, Trash2, Archive, ArchiveRestore,
+  Edit3, Sparkles
 } from 'lucide-react';
 import { useFinanceStore } from '../store/useFinanceStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useAuthStore } from '../store/useAuthStore';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { Modal } from '../components/common/Modal';
 import { CurrencyInput } from '../components/common/CurrencyInput';
 import { CreditCard } from '../types';
+import {
+  CreditCardVisual,
+  MiniCreditCard,
+  LUXURY_CARD_PRESETS,
+  CARD_NETWORKS,
+  detectCardNetwork,
+  NetworkLogo,
+} from '../components/cards/CreditCardVisual';
 
 export const CreditCardsPage: React.FC = () => {
   const {
@@ -16,6 +26,7 @@ export const CreditCardsPage: React.FC = () => {
     addCreditCard, updateCreditCard, deleteCreditCard, recordCardPayment, addCardEmi
   } = useFinanceStore();
   const { currency, privacyMode } = useSettingsStore();
+  const { user } = useAuthStore();
 
   const [activeCardId, setActiveCardId] = useState<string>(creditCards[0]?.id || '');
   const [cardFilter, setCardFilter] = useState<'all' | 'active' | 'closed'>('all');
@@ -29,6 +40,7 @@ export const CreditCardsPage: React.FC = () => {
 
   // Modals
   const [isAddCardModalOpen, setIsAddCardModalOpen] = useState(false);
+  const [isEditCardModalOpen, setIsEditCardModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isAddEmiModalOpen, setIsAddEmiModalOpen] = useState(false);
 
@@ -40,18 +52,91 @@ export const CreditCardsPage: React.FC = () => {
   const [statementDay, setStatementDay] = useState<number | ''>('' as any);
   const [paymentDueDay, setPaymentDueDay] = useState<number | ''>('' as any);
   const [interestRate, setInterestRate] = useState<number | ''>('');
-  const [color, setColor] = useState('#0F172A');
+  const [color, setColor] = useState('#18181B');
+  const [network, setNetwork] = useState('visa');
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
+
+  const openAddCardModal = () => {
+    setNickname('');
+    setIssuer('');
+    setLast4('');
+    setCreditLimit('');
+    setStatementDay('');
+    setPaymentDueDay('');
+    setInterestRate('');
+    setColor('#18181B');
+    setNetwork('visa');
+    setCardErrors({});
+    setIsAddCardModalOpen(true);
+  };
+
+  // Edit Card Form
+  const [editNickname, setEditNickname] = useState('');
+  const [editIssuer, setEditIssuer] = useState('');
+  const [editLast4, setEditLast4] = useState('');
+  const [editCreditLimit, setEditCreditLimit] = useState<number | ''>('');
+  const [editStatementDay, setEditStatementDay] = useState<number | ''>('' as any);
+  const [editPaymentDueDay, setEditPaymentDueDay] = useState<number | ''>('' as any);
+  const [editInterestRate, setEditInterestRate] = useState<number | ''>('');
+  const [editColor, setEditColor] = useState('#18181B');
+  const [editNetwork, setEditNetwork] = useState('visa');
+  const [editCardErrors, setEditCardErrors] = useState<Record<string, string>>({});
+
+  const openEditModal = (card: CreditCard) => {
+    setEditNickname(card.nickname);
+    setEditIssuer(card.issuer);
+    setEditLast4(card.last4);
+    setEditCreditLimit(card.creditLimit);
+    setEditStatementDay(card.statementDay);
+    setEditPaymentDueDay(card.paymentDueDay);
+    setEditInterestRate(card.interestRate ?? '');
+    setEditColor(card.color || '#18181B');
+    setEditNetwork(card.network || detectCardNetwork(card) || 'visa');
+    setEditCardErrors({});
+    setIsEditCardModalOpen(true);
+  };
+
+  const handleUpdateCard = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCard) return;
+
+    const newErrors: Record<string, string> = {};
+    if (!editNickname.trim()) newErrors.editNickname = 'Card nickname is required';
+    if (!editLast4 || editLast4.length !== 4) newErrors.editLast4 = 'Please enter exactly 4 digits';
+    if (!editCreditLimit || Number(editCreditLimit) <= 0) newErrors.editCreditLimit = 'Please enter a valid credit limit';
+
+    if (Object.keys(newErrors).length > 0) {
+      setEditCardErrors(newErrors);
+      return;
+    }
+    setEditCardErrors({});
+
+    updateCreditCard(selectedCard.id, {
+      nickname: editNickname.trim(),
+      issuer: editIssuer.trim(),
+      last4: editLast4,
+      creditLimit: Number(editCreditLimit),
+      statementDay: Number(editStatementDay) || 1,
+      paymentDueDay: Number(editPaymentDueDay) || 15,
+      interestRate: editInterestRate ? Number(editInterestRate) : undefined,
+      color: editColor,
+      network: editNetwork,
+    });
+    setIsEditCardModalOpen(false);
+  };
 
   // Payment Form
   const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
   const [paymentSource, setPaymentSource] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // EMI Form
   const [emiTitle, setEmiTitle] = useState('');
   const [emiPrincipal, setEmiPrincipal] = useState<number | ''>('');
   const [emiTenure, setEmiTenure] = useState(12);
   const [emiMonthly, setEmiMonthly] = useState<number | ''>('');
+  const [emiErrors, setEmiErrors] = useState<Record<string, string>>({});
 
   // Calculate stats for selected card
   const nonDeletedExpenses = expenses.filter((e) => !e.isDeleted);
@@ -78,24 +163,47 @@ export const CreditCardsPage: React.FC = () => {
 
   const handleCreateCard = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nickname.trim() || !last4 || last4.length !== 4 || !creditLimit) return;
+
+    const newErrors: Record<string, string> = {};
+    if (!nickname.trim()) newErrors.nickname = 'Card nickname is required';
+    if (!last4 || last4.length !== 4) newErrors.last4 = 'Please enter exactly 4 digits';
+    if (!creditLimit || Number(creditLimit) <= 0) newErrors.creditLimit = 'Please enter a valid credit limit';
+
+    if (Object.keys(newErrors).length > 0) {
+      setCardErrors(newErrors);
+      return;
+    }
+    setCardErrors({});
 
     addCreditCard({
       nickname: nickname.trim(),
-      issuer,
+      issuer: issuer.trim(),
       last4,
       creditLimit: Number(creditLimit),
       statementDay: Number(statementDay) || 1,
       paymentDueDay: Number(paymentDueDay) || 15,
       interestRate: interestRate ? Number(interestRate) : undefined,
       color,
+      network,
     });
+    setNickname('');
+    setIssuer('');
+    setLast4('');
+    setCreditLimit('');
+    setStatementDay('');
+    setPaymentDueDay('');
+    setInterestRate('');
     setIsAddCardModalOpen(false);
   };
 
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!paymentAmount || Number(paymentAmount) <= 0 || !selectedCard) return;
+    if (!paymentAmount || Number(paymentAmount) <= 0) {
+      setPaymentError('Please enter a valid payment amount greater than ₹0');
+      return;
+    }
+    if (!selectedCard) return;
+    setPaymentError(null);
 
     recordCardPayment(selectedCard.id, Number(paymentAmount), paymentSource, paymentNote || undefined);
     setPaymentAmount('');
@@ -105,7 +213,18 @@ export const CreditCardsPage: React.FC = () => {
 
   const handleCreateEmi = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!emiTitle.trim() || !emiPrincipal || !emiMonthly || !selectedCard) return;
+    if (!selectedCard) return;
+
+    const newErrors: Record<string, string> = {};
+    if (!emiTitle.trim()) newErrors.emiTitle = 'EMI title or merchant is required';
+    if (!emiPrincipal || Number(emiPrincipal) <= 0) newErrors.emiPrincipal = 'Please enter a valid principal amount';
+    if (!emiMonthly || Number(emiMonthly) <= 0) newErrors.emiMonthly = 'Please enter monthly installment amount';
+
+    if (Object.keys(newErrors).length > 0) {
+      setEmiErrors(newErrors);
+      return;
+    }
+    setEmiErrors({});
 
     addCardEmi({
       cardId: selectedCard.id,
@@ -116,6 +235,9 @@ export const CreditCardsPage: React.FC = () => {
       remainingInstallments: emiTenure,
       startDate: new Date().toISOString().split('T')[0],
     });
+    setEmiTitle('');
+    setEmiPrincipal('');
+    setEmiMonthly('');
     setIsAddEmiModalOpen(false);
   };
 
@@ -140,7 +262,7 @@ export const CreditCardsPage: React.FC = () => {
             Record Bill Payment
           </button>
           <button
-            onClick={() => setIsAddCardModalOpen(true)}
+            onClick={openAddCardModal}
             className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors shadow-xs"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -208,29 +330,16 @@ export const CreditCardsPage: React.FC = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <div className="flex items-center gap-3 overflow-x-auto pb-4 pt-2 px-1 scrollbar-thin">
           {displayedCards.map((card) => {
             const isActive = card.id === (selectedCard?.id || '');
             return (
-              <button
+              <MiniCreditCard
                 key={card.id}
+                card={card}
+                isActive={isActive}
                 onClick={() => setActiveCardId(card.id)}
-                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold whitespace-nowrap transition-all border ${
-                  isActive
-                    ? 'border-indigo-600 bg-indigo-50 text-indigo-900 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-200 shadow-xs'
-                    : 'border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-neutral-100'
-                } ${card.isClosed ? 'opacity-70' : ''}`}
-              >
-                <CardIcon className="h-4 w-4" />
-                <span className={card.isClosed ? 'line-through text-neutral-500 dark:text-neutral-400' : ''}>
-                  {card.nickname} (··{card.last4})
-                </span>
-                {card.isClosed && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-normal">
-                    Closed
-                  </span>
-                )}
-              </button>
+              />
             );
           })}
         </div>
@@ -242,7 +351,7 @@ export const CreditCardsPage: React.FC = () => {
           <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">No Credit Cards Tracked</h3>
           <p className="text-xs text-neutral-500 mt-1 mb-4">Add your credit cards to track billing cycles, credit utilization, and EMIs.</p>
           <button
-            onClick={() => setIsAddCardModalOpen(true)}
+            onClick={openAddCardModal}
             className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -276,6 +385,14 @@ export const CreditCardsPage: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => openEditModal(selectedCard)}
+                className="flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 transition-colors shadow-xs"
+                title="Edit card details, billing cycle and design finish"
+              >
+                <Edit3 className="h-3.5 w-3.5 text-indigo-500" />
+                Edit Card
+              </button>
               {selectedCard.isClosed ? (
                 <button
                   onClick={() => updateCreditCard(selectedCard.id, { isClosed: false })}
@@ -321,40 +438,12 @@ export const CreditCardsPage: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Card Physical Visual & Status (Left Column) */}
             <div className="flex flex-col gap-4">
-              {/* Visual Credit Card */}
-              <div
-                className={`relative flex flex-col justify-between h-48 rounded-2xl p-6 text-white shadow-lg overflow-hidden transition-all ${
-                  selectedCard.isClosed ? 'grayscale-[0.6] opacity-80' : ''
-                }`}
-                style={{ backgroundColor: selectedCard.color }}
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-xs font-medium opacity-75">{selectedCard.issuer}</span>
-                    <h3 className="text-lg font-bold">{selectedCard.nickname}</h3>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selectedCard.isClosed && (
-                      <span className="rounded bg-rose-600/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
-                        CLOSED
-                      </span>
-                    )}
-                    <div className="flex h-7 w-10 items-center justify-center rounded bg-amber-400/80 text-[10px] font-bold text-neutral-900">
-                      CHIP
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="font-mono text-base tracking-widest mb-2">
-                    •••• •••• •••• {selectedCard.last4}
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] opacity-80 font-mono">
-                    <span>Statement Day: {selectedCard.statementDay}th</span>
-                    <span>Due Day: {selectedCard.paymentDueDay}th</span>
-                  </div>
-                </div>
-              </div>
+              {/* Ultra-Attractive 3D Flip Credit Card */}
+              <CreditCardVisual
+                card={selectedCard}
+                cardholderName={user?.name || 'VALUED CARDMEMBER'}
+                showFlipButton={true}
+              />
 
             {/* Utilization & Metrics */}
             <div className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 shadow-xs">
@@ -558,21 +647,81 @@ export const CreditCardsPage: React.FC = () => {
         isOpen={isAddCardModalOpen}
         onClose={() => setIsAddCardModalOpen(false)}
         title="Add Credit Card"
-        subtitle="Manage limits, billing cycle and interest rate"
+        subtitle="Manage limits, billing cycle, network, and luxury design finish"
       >
-        <form onSubmit={handleCreateCard} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleCreateCard} className="flex flex-col gap-4">
+          {/* Live Realistic Card Preview */}
+          <div className="mb-2">
+            <span className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+              Live Card Preview
+            </span>
+            <div className="max-w-[310px] mx-auto">
+              <CreditCardVisual
+                card={{
+                  id: 'preview',
+                  nickname: nickname || 'CARD NICKNAME',
+                  issuer: issuer || 'BANK NAME',
+                  last4: (last4 || '4421').padEnd(4, '•'),
+                  creditLimit: Number(creditLimit) || 100000,
+                  statementDay: Number(statementDay) || 1,
+                  paymentDueDay: Number(paymentDueDay) || 15,
+                  color: color,
+                  network: network,
+                  isClosed: false,
+                }}
+                cardholderName={user?.name || 'VALUED CARDMEMBER'}
+                showFlipButton={false}
+                size="sm"
+              />
+            </div>
+          </div>
+
+          {/* Payment Network Selector */}
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+              Payment Network <span className="text-rose-500">*</span>
+            </label>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {CARD_NETWORKS.map((net) => {
+                const isSelected = network === net.id;
+                return (
+                  <button
+                    key={net.id}
+                    type="button"
+                    onClick={() => setNetwork(net.id)}
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-indigo-600 bg-indigo-50/80 text-indigo-950 dark:border-indigo-400 dark:bg-indigo-950/50 dark:text-indigo-200 ring-2 ring-indigo-500/20 shadow-xs'
+                        : 'border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300 dark:hover:bg-neutral-800'
+                    }`}
+                  >
+                    <div className="h-6 flex items-center justify-center mb-1">
+                      <NetworkLogo network={net.id} className="h-5" />
+                    </div>
+                    <span className="text-[11px] font-semibold">{net.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Card Nickname
+              Card Nickname *
             </label>
             <input
               type="text"
-              required
               value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="e.g. ICICI Coral"
-              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+              onChange={(e) => {
+                setNickname(e.target.value);
+                if (cardErrors.nickname) setCardErrors(prev => { const n = { ...prev }; delete n.nickname; return n; });
+              }}
+              placeholder="e.g. Coral, Millennia, Infinia, Platinum"
+              className={`w-full rounded-lg border bg-white px-3 py-2 text-xs text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 ${
+                cardErrors.nickname ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+              }`}
             />
+            {cardErrors.nickname && <p className="text-[11px] font-medium text-rose-500 mt-1">{cardErrors.nickname}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -582,34 +731,47 @@ export const CreditCardsPage: React.FC = () => {
               </label>
               <input
                 type="text"
-                required
                 value={issuer}
                 onChange={(e) => setIssuer(e.target.value)}
-                placeholder="e.g. Axis Bank"
+                placeholder="e.g. HDFC Bank, ICICI Bank, Axis Bank"
                 className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                Last 4 Digits
+                Last 4 Digits *
               </label>
               <input
                 type="text"
-                required
                 maxLength={4}
                 value={last4}
-                onChange={(e) => setLast4(e.target.value.replace(/[^0-9]/g, ''))}
+                onChange={(e) => {
+                  setLast4(e.target.value.replace(/[^0-9]/g, ''));
+                  if (cardErrors.last4) setCardErrors(prev => { const n = { ...prev }; delete n.last4; return n; });
+                }}
                 placeholder="4421"
-                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 font-mono dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                className={`w-full rounded-lg border bg-white px-3 py-2 text-xs text-neutral-900 font-mono dark:bg-neutral-900 dark:text-neutral-100 ${
+                  cardErrors.last4 ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+                }`}
               />
+              {cardErrors.last4 && <p className="text-[11px] font-medium text-rose-500 mt-1">{cardErrors.last4}</p>}
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Credit Limit
+              Credit Limit *
             </label>
-            <CurrencyInput value={creditLimit} onChange={setCreditLimit} placeholder="200000" required />
+            <CurrencyInput
+              value={creditLimit}
+              onChange={(val) => {
+                setCreditLimit(val);
+                if (cardErrors.creditLimit) setCardErrors(prev => { const n = { ...prev }; delete n.creditLimit; return n; });
+              }}
+              placeholder="200000"
+              hasError={!!cardErrors.creditLimit}
+            />
+            {cardErrors.creditLimit && <p className="text-[11px] font-medium text-rose-500 mt-1">{cardErrors.creditLimit}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -622,7 +784,13 @@ export const CreditCardsPage: React.FC = () => {
                 min={1}
                 max={31}
                 value={statementDay}
-                onChange={(e) => setStatementDay(Number(e.target.value))}
+                onChange={(e) => {
+                  let val = e.target.value;
+                  if (val.length > 1 && /^0\d/.test(val)) val = val.replace(/^0+(?=\d)/, '');
+                  setStatementDay(val === '' ? '' : parseInt(val, 10));
+                }}
+                onFocus={(e) => e.target.select()}
+                placeholder="1"
                 className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 font-mono"
               />
             </div>
@@ -635,16 +803,46 @@ export const CreditCardsPage: React.FC = () => {
                 min={1}
                 max={31}
                 value={paymentDueDay}
-                onChange={(e) => setPaymentDueDay(Number(e.target.value))}
+                onChange={(e) => {
+                  let val = e.target.value;
+                  if (val.length > 1 && /^0\d/.test(val)) val = val.replace(/^0+(?=\d)/, '');
+                  setPaymentDueDay(val === '' ? '' : parseInt(val, 10));
+                }}
+                onFocus={(e) => e.target.select()}
+                placeholder="15"
                 className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 font-mono"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Card Theme Color
+            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+              Luxury Finish Preset
             </label>
+            <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 mb-3">
+              {LUXURY_CARD_PRESETS.map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  onClick={() => setColor(preset.color)}
+                  className={`group relative flex flex-col items-center justify-center p-1.5 rounded-lg border transition-all ${
+                    color === preset.color
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/30 dark:border-indigo-400 scale-105 shadow-sm'
+                      : 'border-neutral-200 dark:border-neutral-700 hover:scale-102'
+                  }`}
+                  title={`${preset.name} (${preset.desc})`}
+                >
+                  <div
+                    className="h-5 w-full rounded shadow-inner"
+                    style={{ backgroundColor: preset.color }}
+                  />
+                  <span className="text-[9px] font-medium text-neutral-600 dark:text-neutral-400 truncate w-full text-center mt-1">
+                    {preset.name.split(' ')[0]}
+                  </span>
+                </button>
+              ))}
+            </div>
+
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -653,6 +851,7 @@ export const CreditCardsPage: React.FC = () => {
                 className="h-9 w-12 cursor-pointer rounded border border-neutral-300 bg-transparent p-0.5"
               />
               <span className="text-xs font-mono text-neutral-500">{color}</span>
+              <span className="text-[11px] text-neutral-400">Custom hex finish</span>
             </div>
           </div>
 
@@ -674,6 +873,237 @@ export const CreditCardsPage: React.FC = () => {
         </form>
       </Modal>
 
+      {/* Edit Card Modal */}
+      <Modal
+        isOpen={isEditCardModalOpen}
+        onClose={() => setIsEditCardModalOpen(false)}
+        title="Edit Card Details & Style"
+        subtitle="Update network, billing dates, limit, and metallic design finish"
+      >
+        <form noValidate onSubmit={handleUpdateCard} className="flex flex-col gap-4">
+          {/* Live Realistic Card Preview */}
+          <div className="mb-2">
+            <span className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+              Updated Card Preview
+            </span>
+            <div className="max-w-[310px] mx-auto">
+              <CreditCardVisual
+                card={{
+                  id: selectedCard?.id || 'edit',
+                  nickname: editNickname || 'CARD NICKNAME',
+                  issuer: editIssuer || 'BANK NAME',
+                  last4: (editLast4 || '0000').padEnd(4, '•'),
+                  creditLimit: Number(editCreditLimit) || 100000,
+                  statementDay: Number(editStatementDay) || 1,
+                  paymentDueDay: Number(editPaymentDueDay) || 15,
+                  color: editColor,
+                  network: editNetwork,
+                  isClosed: selectedCard?.isClosed,
+                }}
+                cardholderName={user?.name || 'VALUED CARDMEMBER'}
+                showFlipButton={false}
+                size="sm"
+              />
+            </div>
+          </div>
+
+          {/* Payment Network Selector */}
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+              Payment Network <span className="text-rose-500">*</span>
+            </label>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {CARD_NETWORKS.map((net) => {
+                const isSelected = editNetwork === net.id;
+                return (
+                  <button
+                    key={net.id}
+                    type="button"
+                    onClick={() => setEditNetwork(net.id)}
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-indigo-600 bg-indigo-50/80 text-indigo-950 dark:border-indigo-400 dark:bg-indigo-950/50 dark:text-indigo-200 ring-2 ring-indigo-500/20 shadow-xs'
+                        : 'border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300 dark:hover:bg-neutral-800'
+                    }`}
+                  >
+                    <div className="h-6 flex items-center justify-center mb-1">
+                      <NetworkLogo network={net.id} className="h-5" />
+                    </div>
+                    <span className="text-[11px] font-semibold">{net.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+              Card Nickname *
+            </label>
+            <input
+              type="text"
+              value={editNickname}
+              onChange={(e) => {
+                setEditNickname(e.target.value);
+                if (editCardErrors.editNickname) setEditCardErrors(prev => { const n = { ...prev }; delete n.editNickname; return n; });
+              }}
+              placeholder="e.g. Coral, Millennia, Infinia, Platinum"
+              className={`w-full rounded-lg border bg-white px-3 py-2 text-xs text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 ${
+                editCardErrors.editNickname ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+              }`}
+            />
+            {editCardErrors.editNickname && <p className="text-[11px] font-medium text-rose-500 mt-1">{editCardErrors.editNickname}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                Bank / Issuer
+              </label>
+              <input
+                type="text"
+                value={editIssuer}
+                onChange={(e) => setEditIssuer(e.target.value)}
+                placeholder="e.g. HDFC Bank, ICICI Bank, Axis Bank"
+                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                Last 4 Digits *
+              </label>
+              <input
+                type="text"
+                maxLength={4}
+                value={editLast4}
+                onChange={(e) => {
+                  setEditLast4(e.target.value.replace(/[^0-9]/g, ''));
+                  if (editCardErrors.editLast4) setEditCardErrors(prev => { const n = { ...prev }; delete n.editLast4; return n; });
+                }}
+                placeholder="4421"
+                className={`w-full rounded-lg border bg-white px-3 py-2 text-xs text-neutral-900 font-mono dark:bg-neutral-900 dark:text-neutral-100 ${
+                  editCardErrors.editLast4 ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+                }`}
+              />
+              {editCardErrors.editLast4 && <p className="text-[11px] font-medium text-rose-500 mt-1">{editCardErrors.editLast4}</p>}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+              Credit Limit *
+            </label>
+            <CurrencyInput
+              value={editCreditLimit}
+              onChange={(val) => {
+                setEditCreditLimit(val);
+                if (editCardErrors.editCreditLimit) setEditCardErrors(prev => { const n = { ...prev }; delete n.editCreditLimit; return n; });
+              }}
+              placeholder="200000"
+              hasError={!!editCardErrors.editCreditLimit}
+            />
+            {editCardErrors.editCreditLimit && <p className="text-[11px] font-medium text-rose-500 mt-1">{editCardErrors.editCreditLimit}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                Statement Day of Month
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={31}
+                value={editStatementDay}
+                onChange={(e) => {
+                  let val = e.target.value;
+                  if (val.length > 1 && /^0\d/.test(val)) val = val.replace(/^0+(?=\d)/, '');
+                  setEditStatementDay(val === '' ? '' : parseInt(val, 10));
+                }}
+                onFocus={(e) => e.target.select()}
+                placeholder="1"
+                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                Payment Due Day of Month
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={31}
+                value={editPaymentDueDay}
+                onChange={(e) => {
+                  let val = e.target.value;
+                  if (val.length > 1 && /^0\d/.test(val)) val = val.replace(/^0+(?=\d)/, '');
+                  setEditPaymentDueDay(val === '' ? '' : parseInt(val, 10));
+                }}
+                onFocus={(e) => e.target.select()}
+                placeholder="15"
+                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 font-mono"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
+              Luxury Finish Preset
+            </label>
+            <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 mb-3">
+              {LUXURY_CARD_PRESETS.map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  onClick={() => setEditColor(preset.color)}
+                  className={`group relative flex flex-col items-center justify-center p-1.5 rounded-lg border transition-all ${
+                    editColor === preset.color
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/30 dark:border-indigo-400 scale-105 shadow-sm'
+                      : 'border-neutral-200 dark:border-neutral-700 hover:scale-102'
+                  }`}
+                  title={`${preset.name} (${preset.desc})`}
+                >
+                  <div
+                    className="h-5 w-full rounded shadow-inner"
+                    style={{ backgroundColor: preset.color }}
+                  />
+                  <span className="text-[9px] font-medium text-neutral-600 dark:text-neutral-400 truncate w-full text-center mt-1">
+                    {preset.name.split(' ')[0]}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={editColor}
+                onChange={(e) => setEditColor(e.target.value)}
+                className="h-9 w-12 cursor-pointer rounded border border-neutral-300 bg-transparent p-0.5"
+              />
+              <span className="text-xs font-mono text-neutral-500">{editColor}</span>
+              <span className="text-[11px] text-neutral-400">Custom hex finish</span>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-neutral-100 dark:border-neutral-800">
+            <button
+              type="button"
+              onClick={() => setIsEditCardModalOpen(false)}
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-neutral-100 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-xs"
+            >
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       {/* Record Payment Modal */}
       <Modal
         isOpen={isPaymentModalOpen}
@@ -681,17 +1111,21 @@ export const CreditCardsPage: React.FC = () => {
         title="Record Card Bill Payment"
         subtitle="Saved as balance transfer · NEVER double counted as spending"
       >
-        <form onSubmit={handleRecordPayment} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleRecordPayment} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Payment Amount
+              Payment Amount *
             </label>
             <CurrencyInput
               value={paymentAmount}
-              onChange={setPaymentAmount}
+              onChange={(val) => {
+                setPaymentAmount(val);
+                if (paymentError) setPaymentError(null);
+              }}
               placeholder={outstanding.toString()}
-              required
+              hasError={!!paymentError}
             />
+            {paymentError && <p className="text-[11px] font-medium text-rose-500 mt-1">{paymentError}</p>}
           </div>
 
           <div>
@@ -744,27 +1178,40 @@ export const CreditCardsPage: React.FC = () => {
         onClose={() => setIsAddEmiModalOpen(false)}
         title="Track New EMI Plan"
       >
-        <form onSubmit={handleCreateEmi} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleCreateEmi} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              EMI Title
+              EMI Title *
             </label>
             <input
               type="text"
-              required
               value={emiTitle}
-              onChange={(e) => setEmiTitle(e.target.value)}
+              onChange={(e) => {
+                setEmiTitle(e.target.value);
+                if (emiErrors.emiTitle) setEmiErrors(prev => { const n = { ...prev }; delete n.emiTitle; return n; });
+              }}
               placeholder="e.g. Sony Bravia 65-inch TV"
-              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+              className={`w-full rounded-lg border bg-white px-3 py-2 text-xs text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 ${
+                emiErrors.emiTitle ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+              }`}
             />
+            {emiErrors.emiTitle && <p className="text-[11px] font-medium text-rose-500 mt-1">{emiErrors.emiTitle}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                Principal Amount
+                Principal Amount *
               </label>
-              <CurrencyInput value={emiPrincipal} onChange={setEmiPrincipal} required />
+              <CurrencyInput
+                value={emiPrincipal}
+                onChange={(val) => {
+                  setEmiPrincipal(val);
+                  if (emiErrors.emiPrincipal) setEmiErrors(prev => { const n = { ...prev }; delete n.emiPrincipal; return n; });
+                }}
+                hasError={!!emiErrors.emiPrincipal}
+              />
+              {emiErrors.emiPrincipal && <p className="text-[11px] font-medium text-rose-500 mt-1">{emiErrors.emiPrincipal}</p>}
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
@@ -775,7 +1222,13 @@ export const CreditCardsPage: React.FC = () => {
                 min={1}
                 max={60}
                 value={emiTenure}
-                onChange={(e) => setEmiTenure(Number(e.target.value))}
+                onChange={(e) => {
+                  let val = e.target.value;
+                  if (val.length > 1 && /^0\d/.test(val)) val = val.replace(/^0+(?=\d)/, '');
+                  setEmiTenure(val === '' ? ('' as any) : parseInt(val, 10));
+                }}
+                onFocus={(e) => e.target.select()}
+                placeholder="12"
                 className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 font-mono dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
               />
             </div>
@@ -783,9 +1236,17 @@ export const CreditCardsPage: React.FC = () => {
 
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Monthly Installment
+              Monthly Installment *
             </label>
-            <CurrencyInput value={emiMonthly} onChange={setEmiMonthly} required />
+            <CurrencyInput
+              value={emiMonthly}
+              onChange={(val) => {
+                setEmiMonthly(val);
+                if (emiErrors.emiMonthly) setEmiErrors(prev => { const n = { ...prev }; delete n.emiMonthly; return n; });
+              }}
+              hasError={!!emiErrors.emiMonthly}
+            />
+            {emiErrors.emiMonthly && <p className="text-[11px] font-medium text-rose-500 mt-1">{emiErrors.emiMonthly}</p>}
           </div>
 
           <div className="flex justify-end gap-3 pt-3 border-t border-neutral-100 dark:border-neutral-800">

@@ -43,8 +43,11 @@ async def init_db():
         from sqlalchemy import text
         try:
             await conn.execute(text("ALTER TABLE credit_cards ADD COLUMN IF NOT EXISTS is_closed BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE credit_cards ADD COLUMN IF NOT EXISTS network VARCHAR(30) DEFAULT 'visa';"))
             await conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_recovery_codes_json TEXT;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username_hash VARCHAR(64);"))
+            await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username_hash ON users (username_hash);"))
         except Exception:
             pass
 
@@ -64,6 +67,7 @@ async def init_db():
                 email_encrypted=CryptoService.encrypt("demo@finvault.local", "usr_demo_101", "users", "email"),
                 name_encrypted=CryptoService.encrypt("Demo User", "usr_demo_101", "users", "name"),
                 email_hash=compute_blind_index("demo@finvault.local"),
+                username_hash=compute_blind_index("demo user"),
                 password_hash=get_password_hash("Password123!"),
                 currency="INR"
             )
@@ -74,7 +78,18 @@ async def init_db():
             user.email_encrypted = CryptoService.encrypt("demo@finvault.local", "usr_demo_101", "users", "email")
             user.name_encrypted = CryptoService.encrypt("Demo User", "usr_demo_101", "users", "name")
             user.email_hash = compute_blind_index("demo@finvault.local")
+            user.username_hash = compute_blind_index("demo user")
             await session.commit()
+
+        # Ensure all existing users have username_hash populated
+        unhashed = await session.execute(select(User).where(User.username_hash.is_(None)))
+        for u in unhashed.scalars().all():
+            try:
+                name = CryptoService.decrypt(u.name_encrypted, u.id, "users", "name")
+                u.username_hash = compute_blind_index(name.strip().lower())
+            except Exception:
+                pass
+        await session.commit()
 
         # Ensure standard categories exist for the user
         cat_res = await session.execute(select(Category).where(Category.user_id == "usr_demo_101"))

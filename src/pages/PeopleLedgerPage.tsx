@@ -39,6 +39,7 @@ export const PeopleLedgerPage: React.FC = () => {
 
   // New Person Form
   const [name, setName] = useState('');
+  const [personNameError, setPersonNameError] = useState<string | null>(null);
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
@@ -47,6 +48,7 @@ export const PeopleLedgerPage: React.FC = () => {
   // New Entry Form
   const [entryType, setEntryType] = useState<LedgerType>('lent');
   const [entryAmount, setEntryAmount] = useState<number | ''>('');
+  const [entryAmountError, setEntryAmountError] = useState<string | null>(null);
   const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
   const [entryNote, setEntryNote] = useState('');
   const [entryDueDate, setEntryDueDate] = useState('');
@@ -89,7 +91,11 @@ export const PeopleLedgerPage: React.FC = () => {
 
   const handleCreatePerson = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setPersonNameError('Contact name is required');
+      return;
+    }
+    setPersonNameError(null);
     addPerson({
       name: name.trim(),
       phone: phone || undefined,
@@ -98,6 +104,7 @@ export const PeopleLedgerPage: React.FC = () => {
       avatarColor,
     });
     setName('');
+    setPersonNameError(null);
     setPhone('');
     setEmail('');
     setNotes('');
@@ -106,7 +113,12 @@ export const PeopleLedgerPage: React.FC = () => {
 
   const handleCreateEntry = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!entryAmount || Number(entryAmount) <= 0 || !selectedPerson) return;
+    if (!entryAmount || Number(entryAmount) <= 0) {
+      setEntryAmountError('Please enter a valid amount greater than ₹0');
+      return;
+    }
+    if (!selectedPerson) return;
+    setEntryAmountError(null);
     addLedgerEntry({
       personId: selectedPerson.id,
       type: entryType,
@@ -117,6 +129,7 @@ export const PeopleLedgerPage: React.FC = () => {
       isSettled: false,
     });
     setEntryAmount('');
+    setEntryAmountError(null);
     setEntryNote('');
     setEntryDueDate('');
     setIsAddEntryModalOpen(false);
@@ -575,19 +588,24 @@ export const PeopleLedgerPage: React.FC = () => {
         onClose={() => setIsAddPersonModalOpen(false)}
         title="Add Contact"
       >
-        <form onSubmit={handleCreatePerson} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleCreatePerson} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Contact Name
+              Contact Name *
             </label>
             <input
               type="text"
-              required
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (personNameError) setPersonNameError(null);
+              }}
               placeholder="e.g. Arjun Kapoor"
-              className="w-full rounded-lg border border-neutral-300 bg-white p-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+              className={`w-full rounded-lg border bg-white p-2 text-xs text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 ${
+                personNameError ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+              }`}
             />
+            {personNameError && <p className="text-[11px] font-medium text-rose-500 mt-1">{personNameError}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -654,7 +672,7 @@ export const PeopleLedgerPage: React.FC = () => {
         onClose={() => setIsAddEntryModalOpen(false)}
         title={`New Ledger Entry with ${selectedPerson?.name}`}
       >
-        <form onSubmit={handleCreateEntry} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleCreateEntry} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
               Entry Type
@@ -687,9 +705,17 @@ export const PeopleLedgerPage: React.FC = () => {
 
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Amount
+              Amount *
             </label>
-            <CurrencyInput value={entryAmount} onChange={setEntryAmount} required />
+            <CurrencyInput
+              value={entryAmount}
+              onChange={(val) => {
+                setEntryAmount(val);
+                if (entryAmountError) setEntryAmountError(null);
+              }}
+              hasError={!!entryAmountError}
+            />
+            {entryAmountError && <p className="text-[11px] font-medium text-rose-500 mt-1">{entryAmountError}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -699,7 +725,6 @@ export const PeopleLedgerPage: React.FC = () => {
               </label>
               <input
                 type="date"
-                required
                 value={entryDate}
                 onChange={(e) => setEntryDate(e.target.value)}
                 className="w-full rounded-lg border border-neutral-300 bg-white p-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"

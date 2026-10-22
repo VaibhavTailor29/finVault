@@ -134,6 +134,7 @@ async def sync_all_data(
             "paymentDueDay": c.payment_due_day,
             "interestRate": float(ir) if ir else None,
             "color": c.color,
+            "network": getattr(c, "network", "visa") or "visa",
             "isClosed": bool(getattr(c, "is_closed", False)),
         })
 
@@ -172,6 +173,54 @@ async def sync_all_data(
             "createdAt": l.created_at.isoformat() if l.created_at else None
         })
 
+    # Investments & Transactions
+    inv_res = await db.execute(select(Investment).where(and_(Investment.user_id == user_id, Investment.is_deleted == False)))
+    investments_db = inv_res.scalars().all()
+    investments = []
+    for inv in investments_db:
+        notes = CryptoService.decrypt(inv.notes_encrypted, user_id, "investments", "notes") if inv.notes_encrypted else None
+        investments.append({
+            "id": inv.id,
+            "symbol": inv.symbol,
+            "name": inv.name,
+            "assetType": inv.asset_type,
+            "institution": inv.institution,
+            "interestRate": inv.interest_rate,
+            "maturityDate": inv.maturity_date,
+            "tenureYears": inv.tenure_years,
+            "compoundingFrequency": inv.compounding_frequency,
+            "monthlyDeposit": inv.monthly_deposit,
+            "sipDay": inv.sip_day,
+            "payoutFrequency": inv.payout_frequency,
+            "creditRating": inv.credit_rating,
+            "categoryTag": inv.category_tag,
+            "unitsOrGrams": inv.units_or_grams,
+            "isSipActive": inv.is_sip_active if inv.is_sip_active is not None else True,
+            "taxSection": inv.tax_section,
+            "notes": notes,
+            "isDeleted": False
+        })
+
+    tx_res = await db.execute(select(InvestmentTransaction).where(InvestmentTransaction.user_id == user_id).order_by(InvestmentTransaction.date.asc()))
+    txs_db = tx_res.scalars().all()
+    investment_transactions = []
+    for tx in txs_db:
+        qty = CryptoService.decrypt_decimal(tx.quantity_encrypted, user_id, "investment_transactions", "quantity")
+        price = CryptoService.decrypt_decimal(tx.price_encrypted, user_id, "investment_transactions", "price")
+        fees = CryptoService.decrypt_decimal(tx.fees_encrypted or "0.00", user_id, "investment_transactions", "fees") if tx.fees_encrypted else Decimal("0.00")
+        notes = CryptoService.decrypt(tx.notes_encrypted, user_id, "investment_transactions", "notes") if tx.notes_encrypted else None
+        investment_transactions.append({
+            "id": tx.id,
+            "investmentId": tx.investment_id,
+            "type": tx.type,
+            "quantity": float(qty),
+            "price": float(price),
+            "fees": float(fees),
+            "date": str(tx.date),
+            "notes": notes,
+            "createdAt": tx.created_at.isoformat() if tx.created_at else None
+        })
+
     return {
         "accounts": accounts,
         "transfers": transfers,
@@ -182,6 +231,6 @@ async def sync_all_data(
         "creditCards": credit_cards,
         "people": people,
         "ledgerEntries": ledger_entries,
-        "investments": [],
-        "investmentTransactions": []
+        "investments": investments,
+        "investmentTransactions": investment_transactions
     }

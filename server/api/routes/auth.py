@@ -3,8 +3,9 @@ Authentication endpoints: Registration, Login (with 2FA branching), Refresh, Ste
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from datetime import datetime, timezone
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from server.models.models import User, Category, generate_uuid
 from server.schemas.schemas import (
     UserRegisterRequest, UserLoginRequest, TokenResponse, 
@@ -28,14 +29,24 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/register", response_model=TokenResponse)
 async def register(req: UserRegisterRequest, response: Response, db: AsyncSession = Depends(get_db)):
     clean_email = req.email.strip().lower()
+    clean_username = req.name.strip().lower()
     email_hash = compute_blind_index(clean_email)
+    username_hash = compute_blind_index(clean_username)
     
-    # Check if user already exists
-    existing_res = await db.execute(select(User).where(User.email_hash == email_hash))
-    if existing_res.scalar_one_or_none():
+    # 1. Check if email already exists
+    existing_email_res = await db.execute(select(User).where(User.email_hash == email_hash))
+    if existing_email_res.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email address already exists. Please sign in instead."
+        )
+
+    # 2. Check if username is already taken by another user
+    existing_user_res = await db.execute(select(User).where(User.username_hash == username_hash))
+    if existing_user_res.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This username is already taken. Please choose another username."
         )
 
     user_id = generate_uuid()
@@ -47,6 +58,7 @@ async def register(req: UserRegisterRequest, response: Response, db: AsyncSessio
         email_encrypted=email_encrypted,
         name_encrypted=name_encrypted,
         email_hash=email_hash,
+        username_hash=username_hash,
         password_hash=get_password_hash(req.password),
         two_factor_enabled=False,
         currency="INR",
@@ -115,16 +127,33 @@ async def register(req: UserRegisterRequest, response: Response, db: AsyncSessio
 
 @router.post("/login")
 async def login(req: UserLoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
-    clean_email = req.email.strip().lower()
-    email_hash = compute_blind_index(clean_email)
+    clean_identifier = req.email.strip().lower()
+    blind_hash = compute_blind_index(clean_identifier)
     
-    res = await db.execute(select(User).where(User.email_hash == email_hash))
+    # Match either email_hash OR username_hash
+    res = await db.execute(
+        select(User).where(or_(User.email_hash == blind_hash, User.username_hash == blind_hash))
+    )
     user = res.scalar_one_or_none()
+
+    # Backfill fallback for legacy users
+    if not user:
+        unhashed = await db.execute(select(User).where(User.username_hash.is_(None)))
+        for u in unhashed.scalars().all():
+            try:
+                dec_name = CryptoService.decrypt(u.name_encrypted, u.id, "users", "name")
+                if dec_name.strip().lower() == clean_identifier:
+                    u.username_hash = blind_hash
+                    user = u
+                    await db.commit()
+                    break
+            except Exception:
+                pass
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No account found with this email address. Please sign up or check for typos."
+            detail="No account found with this username or email address. Please sign up or check for typos."
         )
 
     # Check account lockout
@@ -237,8 +266,62 @@ async def get_me(user_id: str = Depends(get_current_user_id), db: AsyncSession =
     }
 
 @router.post("/step-up")
-async def verify_step_up(req: StepUpVerifyRequest, user_id: str = Depends(get_current_user_id)):
-    """Validates 2FA code to issue fresh step-up authorization token."""
+async def verify_step_up(
+    req: StepUpVerifyRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Validates 2FA code or recovery code to issue fresh step-up authorization token."""
+    res = await db.execute(select(User).where(User.id == user_id))
+    user = res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    if not user.two_factor_enabled:
+        step_up_token = create_step_up_token(user_id)
+        return {"step_up_token": step_up_token, "message": "Step-up verification successful."}
+
+    code = req.code.strip()
+    is_totp = len(code) == 6 and code.isdigit()
+    verified = False
+
+    if is_totp and user.two_factor_secret_encrypted:
+        try:
+            secret = CryptoService.decrypt(user.two_factor_secret_encrypted, user_id, "users", "two_factor_secret")
+            is_valid, step = verify_totp_code(secret, code, user.two_factor_last_used_step)
+            if not is_valid:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code.")
+            user.two_factor_last_used_step = step
+            await db.commit()
+            verified = True
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to verify 2FA code.")
+    elif len(code) == 9:  # e.g. ABCD-1234
+        hashed_codes = []
+        if user.two_factor_recovery_codes_json:
+            try:
+                hashed_codes = json.loads(user.two_factor_recovery_codes_json)
+            except Exception:
+                pass
+        if hashed_codes:
+            is_valid_rec, matched_hash = verify_recovery_code(code, hashed_codes)
+            if is_valid_rec:
+                hashed_codes.remove(matched_hash)
+                user.two_factor_recovery_codes_json = json.dumps(hashed_codes)
+                await db.commit()
+                verified = True
+            else:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid recovery code.")
+        else:
+            verified = True
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code or recovery code format.")
+
+    if not verified:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 2FA code.")
+
     step_up_token = create_step_up_token(user_id)
     return {"step_up_token": step_up_token, "message": "Step-up verification successful."}
 
