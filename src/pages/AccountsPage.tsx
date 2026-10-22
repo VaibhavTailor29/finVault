@@ -26,6 +26,7 @@ export const AccountsPage: React.FC = () => {
 
   // New Account Form
   const [name, setName] = useState('');
+  const [accountNameError, setAccountNameError] = useState<string | null>(null);
   const [type, setType] = useState<AccountType>('Savings');
   const [openingBalance, setOpeningBalance] = useState<number | ''>('');
   const [color, setColor] = useState('#4F46E5');
@@ -34,12 +35,14 @@ export const AccountsPage: React.FC = () => {
   const [fromAccountId, setFromAccountId] = useState(accounts[0]?.id || '');
   const [toAccountId, setToAccountId] = useState(accounts[1]?.id || '');
   const [transferAmount, setTransferAmount] = useState<number | ''>('');
+  const [transferAmountError, setTransferAmountError] = useState<string | null>(null);
   const [transferFee, setTransferFee] = useState<number | ''>('');
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
   const [transferNote, setTransferNote] = useState('');
 
   // Reconcile Form
   const [actualStatementBalance, setActualStatementBalance] = useState<number | ''>('');
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
 
   // Delete confirmation
   const [accountToDelete, setAccountToDelete] = useState<typeof accounts[0] | null>(null);
@@ -66,7 +69,11 @@ export const AccountsPage: React.FC = () => {
 
   const handleCreateAccount = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setAccountNameError('Account name is required');
+      return;
+    }
+    setAccountNameError(null);
     addAccount({
       name: name.trim(),
       type,
@@ -81,7 +88,15 @@ export const AccountsPage: React.FC = () => {
 
   const handleCreateTransfer = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!transferAmount || Number(transferAmount) <= 0 || fromAccountId === toAccountId) return;
+    if (!transferAmount || Number(transferAmount) <= 0) {
+      setTransferAmountError('Please enter a valid transfer amount greater than ₹0');
+      return;
+    }
+    if (fromAccountId === toAccountId) {
+      setTransferAmountError('Source and destination accounts must be different');
+      return;
+    }
+    setTransferAmountError(null);
     addTransfer({
       fromAccountId,
       toAccountId,
@@ -98,7 +113,12 @@ export const AccountsPage: React.FC = () => {
 
   const handleReconcile = (e: React.FormEvent) => {
     e.preventDefault();
-    if (actualStatementBalance === '' || !selectedAccountId) return;
+    if (actualStatementBalance === '') {
+      setReconcileError('Please enter the statement balance');
+      return;
+    }
+    if (!selectedAccountId) return;
+    setReconcileError(null);
     reconcileAccount(selectedAccountId, Number(actualStatementBalance));
     setActualStatementBalance('');
     setIsReconcileModalOpen(false);
@@ -343,19 +363,24 @@ export const AccountsPage: React.FC = () => {
         onClose={() => setIsAddAccountModalOpen(false)}
         title="Add Bank Account or Wallet"
       >
-        <form onSubmit={handleCreateAccount} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleCreateAccount} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Account Name
+              Account Name *
             </label>
             <input
               type="text"
-              required
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (accountNameError) setAccountNameError(null);
+              }}
               placeholder="e.g. Axis Priority Salary"
-              className="w-full rounded-lg border border-neutral-300 bg-white p-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+              className={`w-full rounded-lg border bg-white p-2 text-xs text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 ${
+                accountNameError ? 'border-rose-500 focus:border-rose-500 focus:ring-rose-500' : 'border-neutral-300 dark:border-neutral-700'
+              }`}
             />
+            {accountNameError && <p className="text-[11px] font-medium text-rose-500 mt-1">{accountNameError}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -425,7 +450,7 @@ export const AccountsPage: React.FC = () => {
         title="Transfer Money Between Accounts"
         subtitle="Excluded from spending reports"
       >
-        <form onSubmit={handleCreateTransfer} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleCreateTransfer} className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
@@ -462,9 +487,17 @@ export const AccountsPage: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                Transfer Amount
+                Transfer Amount *
               </label>
-              <CurrencyInput value={transferAmount} onChange={setTransferAmount} required />
+              <CurrencyInput
+                value={transferAmount}
+                onChange={(val) => {
+                  setTransferAmount(val);
+                  if (transferAmountError) setTransferAmountError(null);
+                }}
+                hasError={!!transferAmountError}
+              />
+              {transferAmountError && <p className="text-[11px] font-medium text-rose-500 mt-1">{transferAmountError}</p>}
             </div>
             <div>
               <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
@@ -472,7 +505,6 @@ export const AccountsPage: React.FC = () => {
               </label>
               <input
                 type="date"
-                required
                 value={transferDate}
                 onChange={(e) => setTransferDate(e.target.value)}
                 className="w-full rounded-lg border border-neutral-300 bg-white p-2 text-xs text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
@@ -518,7 +550,7 @@ export const AccountsPage: React.FC = () => {
         title={`Reconcile ${activeReconcileAccount?.name}`}
         subtitle="Compare calculated ledger balance with real bank statement"
       >
-        <form onSubmit={handleReconcile} className="flex flex-col gap-4 text-xs">
+        <form noValidate onSubmit={handleReconcile} className="flex flex-col gap-4 text-xs">
           <div className="rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800">
             <div className="flex justify-between mb-1">
               <span className="text-neutral-500">Current Computed Balance:</span>
@@ -530,14 +562,18 @@ export const AccountsPage: React.FC = () => {
 
           <div>
             <label className="block text-neutral-700 dark:text-neutral-300 mb-1 font-medium">
-              Actual Bank Statement Balance
+              Actual Bank Statement Balance *
             </label>
             <CurrencyInput
               value={actualStatementBalance}
-              onChange={setActualStatementBalance}
+              onChange={(val) => {
+                setActualStatementBalance(val);
+                if (reconcileError) setReconcileError(null);
+              }}
               placeholder="Enter exact figure from bank statement"
-              required
+              hasError={!!reconcileError}
             />
+            {reconcileError && <p className="text-[11px] font-medium text-rose-500 mt-1">{reconcileError}</p>}
           </div>
 
           {actualStatementBalance !== '' && (

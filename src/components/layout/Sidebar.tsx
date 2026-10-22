@@ -86,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => 
                 {user?.twoFactorEnabled ? '2FA Enabled' : '2FA Recommended'}
               </span>
               <span className="text-[10px] text-neutral-400">
-                {user?.twoFactorEnabled ? 'TOTP Active' : 'Setup now'}
+                {user?.twoFactorEnabled ? '2FA Active' : 'Setup now'}
               </span>
             </div>
           </div>

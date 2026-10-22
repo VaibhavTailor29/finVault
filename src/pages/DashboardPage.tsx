@@ -12,6 +12,16 @@ import { CurrencyInput } from '../components/common/CurrencyInput';
 import { TagInput } from '../components/common/TagInput';
 import { CustomSelect } from '../components/common/CustomSelect';
 import { CardThumbnail, detectCardNetwork } from '../components/cards/CreditCardVisual';
+import {
+  SplitExpenseSection,
+  computeEffectiveSplits,
+  PersonSplitItem,
+} from '../components/transactions/SplitExpenseSection';
+import {
+  getFilteredAccountsForPaymentMethod,
+  getPaymentMethodAccountMeta,
+} from '../utils/paymentMethodUtils';
+import { calculateHoldings } from '../utils/investmentUtils';
 
 interface DashboardPageProps {
   onNavigate: (path: string) => void;
@@ -20,7 +30,7 @@ interface DashboardPageProps {
 export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const {
     expenses, incomes, categories, creditCards, cardPayments,
-    people, ledgerEntries, investments, priceQuotes,
+    people, ledgerEntries, investments, investmentTransactions, priceQuotes,
     budgets, accounts, transfers,
     addExpense, addIncome, addLedgerEntry, addPerson
   } = useFinanceStore();
@@ -32,20 +42,31 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
   // New Expense form
   const [expAmount, setExpAmount] = useState<number | ''>('');
+  const [expAmountError, setExpAmountError] = useState<string | null>(null);
   const [expCategory, setExpCategory] = useState(categories[0]?.id || '');
   const [expDate, setExpDate] = useState(new Date().toISOString().split('T')[0]);
   const [expPaymentMethod, setExpPaymentMethod] = useState<'Cash' | 'UPI' | 'Debit Card' | 'Credit Card' | 'Net Banking' | 'Wallet'>('UPI');
   const [expCardId, setExpCardId] = useState<string>('');
+  const [expAccountId, setExpAccountId] = useState<string>('');
   const [expNote, setExpNote] = useState('');
   const [expTags, setExpTags] = useState<string[]>([]);
-  const [expPersonId, setExpPersonId] = useState<string>('');
+  // Split / Lent State in Quick Expense
   const [expIsLent, setExpIsLent] = useState(false);
+  const [expSplitTarget, setExpSplitTarget] = useState<'single' | 'multiple'>('single');
+  const [expPersonId, setExpPersonId] = useState<string>('');
   const [expLentMode, setExpLentMode] = useState<'full' | 'partial'>('full');
+  const [expLentSplitUnit, setExpLentSplitUnit] = useState<'amount' | 'percentage'>('amount');
   const [expLentAmount, setExpLentAmount] = useState<number | ''>('');
+  const [expLentPercentage, setExpLentPercentage] = useState<number | ''>('');
   const [expLentDueDate, setExpLentDueDate] = useState<string>('');
+  const [expMultiSplitMethod, setExpMultiSplitMethod] = useState<'equal' | 'percentage' | 'exact'>('equal');
+  const [expIncludeSelfInEqual, setExpIncludeSelfInEqual] = useState(true);
+  const [expPersonSplits, setExpPersonSplits] = useState<PersonSplitItem[]>([]);
+  const [expCommonDueDate, setExpCommonDueDate] = useState<string>('');
 
   // New Income form
   const [incAmount, setIncAmount] = useState<number | ''>('');
+  const [incAmountError, setIncAmountError] = useState<string | null>(null);
   const [incSource, setIncSource] = useState<'Salary' | 'Freelance' | 'Business' | 'Interest' | 'Dividend' | 'Gift' | 'Other'>('Salary');
   const [incDate, setIncDate] = useState(new Date().toISOString().split('T')[0]);
   const [incNote, setIncNote] = useState('');
@@ -89,13 +110,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
   // Net Worth Calculation:
   // Liquid cash (dynamically from accounts) + Investment Portfolio - Card Dues - Borrowed (Net Lent excluded)
-  let portfolioValue = 0;
-  investments.forEach((inv) => {
-    const quote = priceQuotes[inv.symbol];
-    if (quote) {
-      portfolioValue += quote.price * 10; // aggregate holdings
-    }
-  });
+  const holdingsData = calculateHoldings(investments, investmentTransactions, priceQuotes);
+  const portfolioValue = holdingsData.reduce((sum, h) => sum + h.currentValue, 0);
 
   let totalCardDues = 0;
   creditCards.forEach((card) => {
@@ -153,11 +169,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
   const handleCreateExpense = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!expAmount || Number(expAmount) <= 0) return;
+    if (!expAmount || Number(expAmount) <= 0) {
+      setExpAmountError('Please enter a valid expense amount greater than ₹0');
+      return;
+    }
+    setExpAmountError(null);
     const parsedAmount = Number(expAmount);
-    const effectiveLent = expIsLent && expPersonId
-      ? (expLentMode === 'full' ? parsedAmount : Math.min(parsedAmount, Number(expLentAmount) || 0))
-      : 0;
+    const effective = computeEffectiveSplits({
+      totalAmount: parsedAmount,
+      isLent: expIsLent,
+      splitTarget: expSplitTarget,
+      lentPersonId: expPersonId,
+      lentMode: expLentMode,
+      lentSplitUnit: expLentSplitUnit,
+      lentAmount: expLentAmount,
+      lentPercentage: expLentPercentage,
+      lentDueDate: expLentDueDate,
+      multiSplitMethod: expMultiSplitMethod,
+      includeSelfInEqual: expIncludeSelfInEqual,
+      personSplits: expPersonSplits,
+      commonDueDate: expCommonDueDate,
+    });
 
     addExpense({
       amount: parsedAmount,
@@ -165,38 +197,58 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       date: expDate,
       paymentMethod: expPaymentMethod,
       cardId: expPaymentMethod === 'Credit Card' ? expCardId : undefined,
-      personId: expIsLent && expPersonId ? expPersonId : undefined,
+      accountId: expPaymentMethod !== 'Credit Card' && expAccountId ? expAccountId : undefined,
+      personId: effective.splits[0]?.personId || undefined,
       note: expNote || undefined,
       tags: expTags,
-      isSplit: effectiveLent > 0 && effectiveLent < parsedAmount,
+      isSplit: effective.isSplit,
+      splits: effective.splits.length > 0 ? effective.splits : undefined,
     });
 
-    if (effectiveLent > 0 && expPersonId) {
-      addLedgerEntry({
-        personId: expPersonId,
-        type: 'lent',
-        amount: effectiveLent,
-        date: expDate,
-        note: expNote ? `${expNote} (Lent via Quick Add)` : 'Lent via Quick Add',
-        dueDate: expLentDueDate || undefined,
-        isSettled: false,
-      });
-    }
+    effective.splits.forEach((split) => {
+      if (split.amount > 0) {
+        addLedgerEntry({
+          personId: split.personId,
+          type: 'lent',
+          amount: split.amount,
+          date: expDate,
+          note: expNote
+            ? `${expNote} (Split Share${split.percentage ? ` ${split.percentage}%` : ''})`
+            : `Split Share (${split.percentage ? `${split.percentage}%` : formatCurrency(split.amount, currency, false)})`,
+          dueDate: split.dueDate || undefined,
+          isSettled: false,
+        });
+      }
+    });
 
     setExpAmount('');
+    setExpAmountError(null);
+    setExpCardId('');
+    setExpAccountId('');
     setExpNote('');
     setExpTags([]);
     setExpIsLent(false);
+    setExpSplitTarget('single');
     setExpPersonId('');
     setExpLentMode('full');
+    setExpLentSplitUnit('amount');
     setExpLentAmount('');
+    setExpLentPercentage('');
     setExpLentDueDate('');
+    setExpMultiSplitMethod('equal');
+    setExpIncludeSelfInEqual(true);
+    setExpPersonSplits([]);
+    setExpCommonDueDate('');
     setIsExpenseModalOpen(false);
   };
 
   const handleCreateIncome = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!incAmount || Number(incAmount) <= 0) return;
+    if (!incAmount || Number(incAmount) <= 0) {
+      setIncAmountError('Please enter a valid income amount greater than ₹0');
+      return;
+    }
+    setIncAmountError(null);
     addIncome({
       amount: Number(incAmount),
       source: incSource,
@@ -206,6 +258,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       accountId: incAccountId || undefined,
     });
     setIncAmount('');
+    setIncAmountError(null);
     setIncNote('');
     setIncTags([]);
     setIncAccountId(accounts[0]?.id || '');
@@ -612,258 +665,220 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         onClose={() => setIsExpenseModalOpen(false)}
         title="Add Expense"
         subtitle="Saved securely to your vault"
+        maxWidth={expIsLent ? "max-w-4xl" : "max-w-lg"}
       >
-        <form onSubmit={handleCreateExpense} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Amount
-            </label>
-            <CurrencyInput
-              value={expAmount}
-              onChange={setExpAmount}
-              placeholder="0.00"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                Category
-              </label>
-              <CustomSelect
-                value={expCategory}
-                onChange={setExpCategory}
-                className="w-full"
-                placeholder="Choose category..."
-                options={categories.map((c) => ({ value: c.id, label: c.name }))}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                Date
-              </label>
-              <input
-                type="date"
-                required
-                value={expDate}
-                onChange={(e) => setExpDate(e.target.value)}
-                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 focus:border-indigo-500 focus:outline-hidden dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                Payment Method
-              </label>
-              <CustomSelect
-                value={expPaymentMethod}
-                onChange={(v) => setExpPaymentMethod(v as any)}
-                className="w-full"
-                options={[
-                  { value: 'UPI', label: 'UPI' },
-                  { value: 'Credit Card', label: 'Credit Card' },
-                  { value: 'Debit Card', label: 'Debit Card' },
-                  { value: 'Net Banking', label: 'Net Banking' },
-                  { value: 'Cash', label: 'Cash' },
-                  { value: 'Wallet', label: 'Wallet' },
-                ]}
-              />
-            </div>
-
-            {expPaymentMethod === 'Credit Card' && (
+        <form noValidate onSubmit={handleCreateExpense} className="flex flex-col gap-4">
+          <div className={expIsLent ? "grid grid-cols-1 md:grid-cols-12 gap-5 items-start" : "flex flex-col gap-4"}>
+            {/* Primary Details */}
+            <div className={expIsLent ? "md:col-span-5 flex flex-col gap-3.5" : "contents"}>
               <div>
                 <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                  Select Card
+                  Amount *
                 </label>
-                <CustomSelect
-                  value={expCardId}
-                  onChange={setExpCardId}
-                  className="w-full"
-                  placeholder="Choose card..."
-                  options={[
-                    { value: '', label: 'Choose card...' },
-                    ...creditCards
-                      .filter((c) => !c.isClosed)
-                      .map((c) => ({
-                        value: c.id,
-                        label: `${c.nickname} (··${c.last4})`,
-                      })),
-                  ]}
+                <CurrencyInput
+                  value={expAmount}
+                  onChange={(val) => {
+                    setExpAmount(val);
+                    if (expAmountError) setExpAmountError(null);
+                  }}
+                  placeholder="0.00"
+                  hasError={!!expAmountError}
                 />
+                {expAmountError && <p className="text-[11px] font-medium text-rose-500 mt-1">{expAmountError}</p>}
               </div>
-            )}
-          </div>
 
-          {/* Lent to Person Section */}
-          <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-800/40 p-3.5 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                <div>
-                  <label htmlFor="exp-is-lent-toggle" className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 cursor-pointer">
-                    Lend to a Person
-                  </label>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                    Track full or partial amount in People Debt Ledger
-                  </p>
-                </div>
-              </div>
-              <input
-                id="exp-is-lent-toggle"
-                type="checkbox"
-                checked={expIsLent}
-                onChange={(e) => {
-                  setExpIsLent(e.target.checked);
-                  if (e.target.checked) {
-                    if (!expPersonId && people.length > 0) {
-                      setExpPersonId(people[0].id);
-                    }
-                    if (expLentMode === 'full' && expAmount) {
-                      setExpLentAmount(Number(expAmount));
-                    }
-                  }
-                }}
-                className="h-4 w-4 rounded border-neutral-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-              />
-            </div>
-
-            {expIsLent && (
-              <div className="space-y-3 pt-2 border-t border-neutral-200/70 dark:border-neutral-700/60">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                    Select Person
+                    Category
                   </label>
-                  {people.length === 0 ? (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
-                      No people found in People Ledger. Go to People Ledger to add persons.
-                    </p>
-                  ) : (
-                    <CustomSelect
-                      value={expPersonId}
-                      onChange={setExpPersonId}
-                      className="w-full"
-                      placeholder="-- Choose person from list --"
-                      options={[
-                        { value: '', label: '-- Choose person from list --' },
-                        ...people.map((p) => ({
-                          value: p.id,
-                          label: `${p.name}${p.phone ? ` (${p.phone})` : ''}`,
-                        })),
-                      ]}
-                    />
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
-                    Lent Amount
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 mb-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setExpLentMode('full');
-                        setExpLentAmount(expAmount ? Number(expAmount) : '');
-                      }}
-                      className={`rounded-lg py-1.5 px-3 text-xs font-medium border text-center transition-colors ${
-                        expLentMode === 'full'
-                          ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/50 dark:border-indigo-700 dark:text-indigo-300 font-semibold'
-                          : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      Full Amount ({expAmount ? formatCurrency(Number(expAmount), currency, false) : 'Total'})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setExpLentMode('partial');
-                        if (!expLentAmount || Number(expLentAmount) >= Number(expAmount)) {
-                          setExpLentAmount(expAmount ? Math.round(Number(expAmount) / 2) : '');
-                        }
-                      }}
-                      className={`rounded-lg py-1.5 px-3 text-xs font-medium border text-center transition-colors ${
-                        expLentMode === 'partial'
-                          ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/50 dark:border-indigo-700 dark:text-indigo-300 font-semibold'
-                          : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      Partial / Split Amount
-                    </button>
-                  </div>
-
-                  {expLentMode === 'partial' && (
-                    <CurrencyInput
-                      value={expLentAmount}
-                      onChange={(val) => setExpLentAmount(val)}
-                      placeholder="Enter amount lent"
-                    />
-                  )}
-
-                  {expAmount && Number(expAmount) > 0 && expPersonId && (
-                    <div className="mt-2 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/60 p-2.5 text-[11px] space-y-1">
-                      <div className="flex justify-between text-neutral-600 dark:text-neutral-300">
-                        <span>Total Paid:</span>
-                        <span className="font-mono font-medium">{formatCurrency(Number(expAmount), currency, false)}</span>
-                      </div>
-                      <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold">
-                        <span>Lent to {people.find((p) => p.id === expPersonId)?.name || 'Person'}:</span>
-                        <span className="font-mono">
-                          {formatCurrency(
-                            expLentMode === 'full' ? Number(expAmount) : Math.min(Number(expAmount), Number(expLentAmount) || 0),
-                            currency,
-                            false
-                          )}
-                        </span>
-                      </div>
-                      {expLentMode === 'partial' && Number(expLentAmount) < Number(expAmount) && (
-                        <div className="flex justify-between text-neutral-500 dark:text-neutral-400 border-t border-indigo-100 dark:border-indigo-900/50 pt-1">
-                          <span>Personal Expense Share:</span>
-                          <span className="font-mono font-medium">
-                            {formatCurrency(Number(expAmount) - Math.min(Number(expAmount), Number(expLentAmount) || 0), currency, false)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <CustomSelect
+                    value={expCategory}
+                    onChange={setExpCategory}
+                    className="w-full"
+                    placeholder="Choose category..."
+                    options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                  />
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-                    Expected Repayment Date (Optional)
+                    Date
                   </label>
                   <input
                     type="date"
-                    value={expLentDueDate}
-                    onChange={(e) => setExpLentDueDate(e.target.value)}
+                    value={expDate}
+                    onChange={(e) => setExpDate(e.target.value)}
                     className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 focus:border-indigo-500 focus:outline-hidden dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                   />
                 </div>
               </div>
-            )}
-          </div>
 
-          <div>
-            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Note
-            </label>
-            <input
-              type="text"
-              value={expNote}
-              onChange={(e) => setExpNote(e.target.value)}
-              placeholder="e.g. Organic produce at market"
-              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 focus:border-indigo-500 focus:outline-hidden dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-            />
-          </div>
+              {(() => {
+                const filteredAccounts = getFilteredAccountsForPaymentMethod(accounts, expPaymentMethod);
+                const accountMeta = getPaymentMethodAccountMeta(expPaymentMethod);
 
-          <div>
-            <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Tags
-            </label>
-            <TagInput selectedTags={expTags} onChange={setExpTags} />
+                return (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                        Payment Method
+                      </label>
+                      <CustomSelect
+                        value={expPaymentMethod}
+                        onChange={(v) => {
+                          const newMethod = v as any;
+                          setExpPaymentMethod(newMethod);
+                          if (newMethod === 'Credit Card') {
+                            setExpAccountId('');
+                          } else {
+                            setExpCardId('');
+                            const matching = getFilteredAccountsForPaymentMethod(accounts, newMethod);
+                            if (!matching.some((a) => a.id === expAccountId)) {
+                              setExpAccountId(matching.length === 1 ? matching[0].id : '');
+                            }
+                          }
+                        }}
+                        className="w-full"
+                        options={[
+                          { value: 'UPI', label: 'UPI' },
+                          { value: 'Credit Card', label: 'Credit Card' },
+                          { value: 'Debit Card', label: 'Debit Card' },
+                          { value: 'Net Banking', label: 'Net Banking' },
+                          { value: 'Cash', label: 'Cash' },
+                          { value: 'Wallet', label: 'Wallet' },
+                        ]}
+                      />
+                    </div>
+
+                    {expPaymentMethod === 'Credit Card' ? (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                          Select Card
+                        </label>
+                        <CustomSelect
+                          value={expCardId}
+                          onChange={setExpCardId}
+                          className="w-full"
+                          placeholder="Choose card..."
+                          options={[
+                            { value: '', label: 'Choose card...' },
+                            ...creditCards
+                              .filter((c) => !c.isClosed)
+                              .map((c) => ({
+                                value: c.id,
+                                label: `${c.nickname} (··${c.last4})`,
+                              })),
+                          ]}
+                        />
+                      </div>
+                    ) : filteredAccounts.length > 0 ? (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                          {accountMeta.label}
+                        </label>
+                        <CustomSelect
+                          value={expAccountId}
+                          onChange={setExpAccountId}
+                          className="w-full"
+                          placeholder={accountMeta.noneLabel}
+                          options={[
+                            { value: '', label: accountMeta.noneLabel },
+                            ...filteredAccounts.map((acc) => ({
+                              value: acc.id,
+                              label: `${acc.name} (${acc.type})${acc.isArchived ? ' [Archived]' : ''}`,
+                            })),
+                          ]}
+                        />
+                      </div>
+                    ) : expPaymentMethod === 'Cash' ? (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                          Source
+                        </label>
+                        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600 dark:border-neutral-800 dark:bg-neutral-800/60 dark:text-neutral-300">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                          <span>Physical Cash (Out of pocket)</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                          {accountMeta.label}
+                        </label>
+                        <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 p-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+                          <span>{accountMeta.emptyNotice} </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsExpenseModalOpen(false);
+                              onNavigate('/accounts');
+                            }}
+                            className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline inline cursor-pointer"
+                          >
+                            + Add in Accounts
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div>
+                <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                  Note
+                </label>
+                <input
+                  type="text"
+                  value={expNote}
+                  onChange={(e) => setExpNote(e.target.value)}
+                  placeholder="e.g. Organic produce at market"
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 focus:border-indigo-500 focus:outline-hidden dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                  Tags
+                </label>
+                <TagInput selectedTags={expTags} onChange={setExpTags} />
+              </div>
+            </div>
+
+            {/* Split / Debt Ledger Details */}
+            <div className={expIsLent ? "md:col-span-7 flex flex-col gap-3.5" : "contents"}>
+              <SplitExpenseSection
+                totalAmount={expAmount}
+                currency={currency}
+                people={people}
+                onAddPerson={addPerson}
+                isLent={expIsLent}
+                setIsLent={setExpIsLent}
+                splitTarget={expSplitTarget}
+                setSplitTarget={setExpSplitTarget}
+                lentPersonId={expPersonId}
+                setLentPersonId={setExpPersonId}
+                lentMode={expLentMode}
+                setLentMode={setExpLentMode}
+                lentSplitUnit={expLentSplitUnit}
+                setLentSplitUnit={setExpLentSplitUnit}
+                lentAmount={expLentAmount}
+                setLentAmount={setExpLentAmount}
+                lentPercentage={expLentPercentage}
+                setLentPercentage={setExpLentPercentage}
+                lentDueDate={expLentDueDate}
+                setLentDueDate={setExpLentDueDate}
+                multiSplitMethod={expMultiSplitMethod}
+                setMultiSplitMethod={setExpMultiSplitMethod}
+                includeSelfInEqual={expIncludeSelfInEqual}
+                setIncludeSelfInEqual={setExpIncludeSelfInEqual}
+                personSplits={expPersonSplits}
+                setPersonSplits={setExpPersonSplits}
+                commonDueDate={expCommonDueDate}
+                setCommonDueDate={setExpCommonDueDate}
+              />
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-100 dark:border-neutral-800">
@@ -891,17 +906,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         title="Add Income"
         subtitle="Record earnings, freelancing, dividends or gifts"
       >
-        <form onSubmit={handleCreateIncome} className="flex flex-col gap-4">
+        <form noValidate onSubmit={handleCreateIncome} className="flex flex-col gap-4">
           <div>
             <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">
-              Amount
+              Amount *
             </label>
             <CurrencyInput
               value={incAmount}
-              onChange={setIncAmount}
+              onChange={(val) => {
+                setIncAmount(val);
+                if (incAmountError) setIncAmountError(null);
+              }}
               placeholder="0.00"
-              required
+              hasError={!!incAmountError}
             />
+            {incAmountError && <p className="text-[11px] font-medium text-rose-500 mt-1">{incAmountError}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -931,7 +950,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               </label>
               <input
                 type="date"
-                required
                 value={incDate}
                 onChange={(e) => setIncDate(e.target.value)}
                 className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-900 focus:border-indigo-500 focus:outline-hidden dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"

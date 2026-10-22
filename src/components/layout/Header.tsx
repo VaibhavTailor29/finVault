@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Eye, EyeOff, Bell, Sun, Moon, Laptop, ShieldCheck, Check, LogOut } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Eye, EyeOff, Bell, Sun, Moon, Laptop, ShieldCheck, Check, LogOut, X } from 'lucide-react';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useFinanceStore } from '../../store/useFinanceStore';
@@ -14,10 +14,49 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ currentTitle }) => {
   const { theme, setTheme, currency, setCurrency, privacyMode, togglePrivacyMode } = useSettingsStore();
   const { user, logout } = useAuthStore();
-  const { notifications, markAllNotificationsAsRead } = useFinanceStore();
+  const {
+    notifications,
+    markAllNotificationsAsRead,
+    markNotificationAsRead,
+    clearNotification,
+    clearAllNotifications,
+  } = useFinanceStore();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+
+  const notificationsRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close notifications or user dropdown when clicking outside or pressing Escape
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (showNotifications && notificationsRef.current && !notificationsRef.current.contains(target)) {
+        setShowNotifications(false);
+      }
+      if (showUserMenu && userMenuRef.current && !userMenuRef.current.contains(target)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowNotifications(false);
+        setShowUserMenu(false);
+      }
+    };
+
+    if (showNotifications || showUserMenu) {
+      document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showNotifications, showUserMenu]);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
@@ -131,14 +170,14 @@ export const Header: React.FC<HeaderProps> = ({ currentTitle }) => {
         </button>
 
         {/* Notifications Popover */}
-        <div className="relative">
+        <div ref={notificationsRef} className="relative">
           <button
             type="button"
             onClick={() => {
               setShowNotifications(!showNotifications);
               setShowUserMenu(false);
             }}
-            className="relative flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100 transition-colors"
+            className="relative flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100 cursor-pointer transition-colors"
             title="Notifications"
             aria-label="View notifications"
           >
@@ -151,61 +190,81 @@ export const Header: React.FC<HeaderProps> = ({ currentTitle }) => {
           </button>
 
           {showNotifications && (
-            <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setShowNotifications(false)}
-              />
-              <div className="absolute right-0 mt-2 w-[calc(100vw-1.5rem)] sm:w-80 max-w-sm rounded-xl border border-neutral-200 bg-white p-3 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 z-50">
-                <div className="flex items-center justify-between border-b border-neutral-100 pb-2 mb-2 dark:border-neutral-800">
-                  <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
-                    Notifications ({unreadCount} new)
-                  </span>
+            <div className="absolute right-0 mt-2 w-[calc(100vw-1.5rem)] sm:w-80 max-w-sm rounded-xl border border-neutral-200 bg-white p-3 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 z-50">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-2 mb-2 dark:border-neutral-800">
+                <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+                  Notifications {unreadCount > 0 ? `(${unreadCount} new)` : `(${notifications.length})`}
+                </span>
+                <div className="flex items-center gap-2">
                   {unreadCount > 0 && (
                     <button
                       type="button"
                       onClick={() => markAllNotificationsAsRead()}
-                      className="text-[11px] text-indigo-600 hover:underline dark:text-indigo-400"
+                      className="text-[11px] font-medium text-indigo-600 hover:underline dark:text-indigo-400 cursor-pointer"
                     >
                       Mark all read
                     </button>
                   )}
-                </div>
-                <div className="max-h-64 overflow-y-auto flex flex-col gap-2">
-                  {notifications.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-neutral-400">
-                      No new notifications
-                    </p>
-                  ) : (
-                    notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        className={`flex flex-col gap-0.5 rounded-lg p-2 text-xs transition-colors ${
-                          n.isRead
-                            ? 'bg-transparent text-neutral-600 dark:text-neutral-400'
-                            : 'bg-indigo-50/60 dark:bg-indigo-950/30 text-neutral-900 dark:text-neutral-100'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold">{n.title}</span>
-                          {!n.isRead && (
-                            <span className="h-1.5 w-1.5 rounded-full bg-indigo-600" />
-                          )}
-                        </div>
-                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                          {n.message}
-                        </p>
-                      </div>
-                    ))
+                  {notifications.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => clearAllNotifications()}
+                      className="text-[11px] font-medium text-neutral-400 hover:text-rose-500 hover:underline dark:text-neutral-500 dark:hover:text-rose-400 cursor-pointer"
+                    >
+                      Clear all
+                    </button>
                   )}
                 </div>
               </div>
-            </>
+              <div className="max-h-72 overflow-y-auto flex flex-col gap-2">
+                {notifications.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-neutral-400">
+                    No notifications right now
+                  </p>
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() => !n.isRead && markNotificationAsRead(n.id)}
+                      className={`group relative flex flex-col gap-0.5 rounded-lg p-2.5 text-xs transition-colors cursor-pointer ${
+                        n.isRead
+                          ? 'bg-neutral-50/50 hover:bg-neutral-100/60 text-neutral-600 dark:bg-neutral-800/20 dark:hover:bg-neutral-800/40 dark:text-neutral-400'
+                          : 'bg-indigo-50/70 hover:bg-indigo-100/70 text-neutral-900 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60 dark:text-neutral-100 font-medium'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-semibold text-xs leading-snug">{n.title}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {!n.isRead && (
+                            <span className="h-2 w-2 rounded-full bg-indigo-600" title="Unread" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              clearNotification(n.id);
+                            }}
+                            className="text-neutral-400 hover:text-rose-500 dark:hover:text-rose-400 p-0.5 rounded hover:bg-neutral-200/50 dark:hover:bg-neutral-700/50 transition-colors cursor-pointer"
+                            title="Dismiss notification"
+                            aria-label="Dismiss notification"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 pr-4">
+                        {n.message}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           )}
         </div>
 
         {/* Profile Avatar & User Menu */}
-        <div className="relative flex items-center pl-1 sm:pl-2 border-l border-neutral-200 dark:border-neutral-800">
+        <div ref={userMenuRef} className="relative flex items-center pl-1 sm:pl-2 border-l border-neutral-200 dark:border-neutral-800">
           <button
             type="button"
             onClick={() => {
@@ -227,12 +286,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTitle }) => {
           </button>
 
           {showUserMenu && (
-            <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setShowUserMenu(false)}
-              />
-              <div className="absolute right-0 top-11 mt-1 w-[calc(100vw-1.5rem)] sm:w-64 max-w-xs rounded-xl border border-neutral-200 bg-white p-2.5 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 z-50">
+            <div className="absolute right-0 top-11 mt-1 w-[calc(100vw-1.5rem)] sm:w-64 max-w-xs rounded-xl border border-neutral-200 bg-white p-2.5 shadow-xl dark:border-neutral-800 dark:bg-neutral-900 z-50">
                 <div className="px-2.5 py-2 border-b border-neutral-100 dark:border-neutral-800">
                   <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 truncate">
                     {user?.name || 'FinVault User'}
@@ -292,7 +346,6 @@ export const Header: React.FC<HeaderProps> = ({ currentTitle }) => {
                   </button>
                 </div>
               </div>
-            </>
           )}
         </div>
       </div>

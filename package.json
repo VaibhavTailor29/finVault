@@ -17,6 +17,7 @@
     "lucide-react": "^0.475.0",
     "motion": "^12.4.3",
     "papaparse": "^5.5.2",
+    "protobufjs": "^8.8.1",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: finVault@%7238
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +25,7 @@ services:
     container_name: finvault_api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8585:8000"
     env_file:
       - .env
     environment:
@@ -37,7 +37,7 @@ services:
       - CURRENT_KEY_ID=v1
       - ENCRYPT_AMOUNTS=false
       - BLIND_INDEX_KEY=03d825e8b9c3f533a0ab81f9781305d9ddbb347a6811d8d508aedb1cb6175d27
-      - APP_URL=${APP_URL:-http://localhost:3000}
+      - APP_URL=${APP_URL:-http://localhost:3001}
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
@@ -62,7 +62,7 @@ services:
       - .:/app
       - frontend_node_modules:/app/node_modules
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - VITE_API_URL=http://api:8000
     command: sh -c "npm install && npm run dev"

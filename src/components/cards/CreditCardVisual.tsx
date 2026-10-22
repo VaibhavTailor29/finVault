@@ -96,15 +96,45 @@ export const NetworkLogo: React.FC<{ network: string; className?: string }> = ({
     );
   }
 
-  // Default: VISA with clean official typography & drop-shadow
+  // Default: Authentic original VISA with official typography and iconic gold wing
   return (
     <div className={`flex items-center justify-center shrink-0 ${className}`} title="Visa">
-      <svg viewBox="0 0 100 32" className="h-full w-auto max-h-full max-w-full drop-shadow-sm select-none" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path
-          d="M38.8 3.5L25.6 28.5h-5.4L11.5 8.9c-.6-2.4-1.2-3.1-3.2-4.1C5.3 3.3 2.1 2.5 0 2l.3 1.5c4.7 1 9.9 3.6 12.3 8.3l6.5 24.7h6l9.3-25h-5.6zm23.8 0c-4.4 0-7.7 2.3-7.9 5.8-.1 2.5 2.2 3.9 3.9 4.8 1.8.8 2.4 1.4 2.4 2.2 0 1.2-1.4 1.7-2.7 1.7-1.8 0-2.8-.3-4.3-.9l-.6-.3-.6 3.7c1 .5 2.8.9 4.7.9 4.7 0 7.8-2.3 7.8-6 0-2-.1-3.5-2.6-4.7-1.5-.8-2.4-1.3-2.4-2.1 0-.7.8-1.5 2.5-1.5 1.4 0 2.4.3 3.2.7l.4.2.6-3.6c-.9-.4-2.2-.6-3.8-.6zm18.3 0h-4.3c-1.3 0-2.3.4-2.9 1.8l-8.2 19.7h5.8l1.2-3.3h7.1l.7 3.3h5.1l-4.5-21.5zm-6.8 14.5l2.2-6.1 1.3 6.1h-3.5zm-33.8-14.5l-4.4 21.5h5.5l4.4-21.5h-5.5z"
-          fill="#FFFFFF"
-        />
-      </svg>
+      <div className="bg-white/95 px-1.5 py-0.5 rounded shadow-xs border border-white/60 flex items-center justify-center h-full">
+        <svg
+          viewBox="0 0 1000 324"
+          className="h-full w-auto max-h-full max-w-full select-none"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <g transform="matrix(4.4299631,0,0,4.4299631,-81.165783,-105.04783)">
+            {/* Letter I */}
+            <polygon
+              points="116.145,95.719 97.858,95.719 109.296,24.995 127.582,24.995"
+              fill="#1A1F71"
+            />
+            {/* Letter S */}
+            <path
+              d="m 182.437,26.724 c -3.607,-1.431 -9.328,-3.011 -16.402,-3.011 -18.059,0 -30.776,9.63 -30.854,23.398 -0.15,10.158 9.105,15.8 16.027,19.187 7.075,3.461 9.48,5.72 9.48,8.805 -0.072,4.738 -5.717,6.922 -10.982,6.922 -7.301,0 -11.213,-1.126 -17.158,-3.762 l -2.408,-1.13 -2.559,15.876 c 4.289,1.954 12.191,3.688 20.395,3.764 19.188,0 31.68,-9.481 31.828,-24.153 0.073,-8.051 -4.814,-14.22 -15.35,-19.261 -6.396,-3.236 -10.313,-5.418 -10.313,-8.729 0.075,-3.01 3.313,-6.093 10.533,-6.093 5.945,-0.151 10.313,1.278 13.622,2.708 l 1.654,0.751 2.487,-15.272 0,0 z"
+              fill="#1A1F71"
+            />
+            {/* Letter A */}
+            <path
+              d="m 206.742,70.664 c 1.506,-4.063 7.301,-19.788 7.301,-19.788 -0.076,0.151 1.503,-4.138 2.406,-6.771 l 1.278,6.094 c 0,0 3.463,16.929 4.215,20.465 -2.858,0 -11.588,0 -15.2,0 l 0,0 z m 22.573,-45.669 -14.145,0 c -4.362,0 -7.676,1.278 -9.558,5.868 l -27.163,64.855 19.188,0 c 0,0 3.159,-8.729 3.838,-10.609 2.105,0 20.771,0 23.479,0 0.525,2.483 2.182,10.609 2.182,10.609 l 16.932,0 -14.753,-70.723 0,0 z"
+              fill="#1A1F71"
+            />
+            {/* Letter V stem */}
+            <path
+              d="M 82.584,24.995 64.675,73.222 62.718,63.441 C 59.407,52.155 49.023,39.893 37.435,33.796 l 16.404,61.848 19.338,0 28.744,-70.649 -19.337,0 0,0 z"
+              fill="#1A1F71"
+            />
+            {/* Iconic Gold Wing on V */}
+            <path
+              d="m 48.045,24.995 -29.422,0 -0.301,1.429 c 22.951,5.869 38.151,20.016 44.396,37.02 L 56.322,30.94 c -1.053,-4.517 -4.289,-5.796 -8.277,-5.945 l 0,0 z"
+              fill="#FAA61A"
+            />
+          </g>
+        </svg>
+      </div>
     </div>
   );
 };
@@ -117,7 +147,7 @@ export const CardThumbnail: React.FC<{
   const network = detectCardNetwork(card);
   return (
     <div
-      className={`relative rounded-lg shadow-xs flex items-center justify-between p-1.5 text-white shrink-0 overflow-hidden border border-white/20 select-none ${className}`}
+      className={`relative rounded-lg shadow-xs flex items-center justify-center p-1 text-white shrink-0 overflow-hidden border border-white/20 select-none ${className}`}
       style={{
         backgroundColor: card.color || '#18181B',
         backgroundImage: `
@@ -126,12 +156,9 @@ export const CardThumbnail: React.FC<{
         `,
       }}
     >
-      {/* Mini Smart Chip */}
-      <div className="w-2.5 h-2 rounded-[2px] bg-gradient-to-br from-[#FFEBA0] via-[#D4AF37] to-[#8C6D1F] border border-amber-300/80 shadow-2xs shrink-0" />
-
-      {/* Network Emblem */}
-      <div className="h-3 flex items-center justify-end max-w-[26px]">
-        <NetworkLogo network={network} className="h-2.5" />
+      {/* Network Emblem Only */}
+      <div className="flex items-center justify-center h-full w-full z-10">
+        <NetworkLogo network={network} className="h-4 sm:h-4.5 max-w-[85%]" />
       </div>
 
       {/* Specular sheen */}

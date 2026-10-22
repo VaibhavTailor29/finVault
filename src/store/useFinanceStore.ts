@@ -7,6 +7,9 @@ import {
   SIPScheduleItem, SMSInboxItem, HouseholdMemberItem
 } from '../types';
 import { apiClient } from '../api/client';
+import { offlineDb } from '../utils/offlineDb';
+import { yahooLiveStreamer } from '../utils/yahooLiveStreamer';
+import { getMarketStatus } from '../utils/marketHours';
 
 interface DeletedRecordItem {
   id: string;
@@ -36,6 +39,7 @@ interface FinanceState {
   investmentTransactions: InvestmentTransaction[];
   priceQuotes: Record<string, PriceQuote>;
   notifications: AppNotification[];
+  dismissedNotificationIds: string[];
   undoQueue: DeletedRecordItem[];
 
   // Phase 2-6 Data
@@ -98,8 +102,17 @@ interface FinanceState {
 
   // Investments
   addInvestment: (inv: Omit<Investment, 'id'>) => void;
+  updateInvestment: (id: string, updates: Partial<Investment>) => void;
+  deleteInvestment: (id: string) => void;
   addInvestmentTransaction: (tx: Omit<InvestmentTransaction, 'id' | 'createdAt'>) => void;
   updatePriceQuote: (symbol: string, price: number, dayChangePct: number, isManual?: boolean) => void;
+  bulkImportHoldings: (holdings: any[], mode?: 'merge' | 'replace') => Promise<{ success: boolean; count: number }>;
+  syncLivePrices: (symbols?: string[]) => Promise<void>;
+  isLiveStreamActive: boolean;
+  startLiveStream: () => void;
+  stopLiveStream: () => void;
+  toggleLiveStream: () => void;
+  syncWithMarketHours: (marketRegion?: string, autoSync?: boolean) => void;
 
   // Goals
   addGoal: (goal: Omit<SavingsGoal, 'id'>) => void;
@@ -122,6 +135,7 @@ interface FinanceState {
   markNotificationAsRead: (id: string) => void;
   markAllNotificationsAsRead: () => void;
   clearNotification: (id: string) => void;
+  clearAllNotifications: () => void;
 
   // Undo System
   undoLastDelete: () => void;
@@ -130,7 +144,7 @@ interface FinanceState {
   // Backup & Restore
   exportAllData: () => any;
   importAllData: (data: any, mode: 'merge' | 'replace') => void;
-  clearAllData: () => void;
+  clearAllData: () => Promise<void>;
 }
 
 const DEFAULT_ACCOUNTS: Account[] = [];
@@ -187,7 +201,21 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
         localStorage.removeItem('finvault_finance_store_v2');
         localStorage.removeItem('kuber_finance_store_v2');
         const saved = localStorage.getItem('finvault_finance_store_v3');
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed.investments)) {
+            // Strip out legacy mock/default investments
+            parsed.investments = parsed.investments.filter(
+              (i: any) => !['inv_rel', 'inv_tcs', 'inv_hdfcb', 'inv_ppfcf', 'inv_hdfc100', 'inv_axismid', 'inv_sbi_fd', 'inv_hdfc_fd', 'inv_icici_rd', 'inv_sgb_23', 'inv_sgb_22', 'inv_gsec_33', 'inv_lt_ncd', 'inv_embassy', 'inv_brookfield', 'inv_ppf', 'inv_nps', 'inv_btc', 'inv_eth'].includes(i.id)
+            );
+          }
+          if (Array.isArray(parsed.investmentTransactions)) {
+            parsed.investmentTransactions = parsed.investmentTransactions.filter(
+              (t: any) => !['tx_1', 'tx_2', 'tx_3', 'tx_4', 'tx_5', 'tx_6', 'tx_7', 'tx_8', 'tx_9', 'tx_10', 'tx_11', 'tx_12', 'tx_13', 'tx_14', 'tx_15', 'tx_16', 'tx_17', 'tx_18', 'tx_19'].includes(t.id)
+            );
+          }
+          return parsed;
+        }
       }
     } catch (e) {
       console.error(e);
@@ -214,6 +242,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     investmentTransactions: initial?.investmentTransactions ?? [],
     priceQuotes: initial?.priceQuotes ?? {},
     notifications: initial?.notifications ?? [],
+    dismissedNotificationIds: initial?.dismissedNotificationIds ?? [],
     undoQueue: [],
 
     // Phase 2 State
@@ -225,6 +254,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     householdMembers: initial?.householdMembers ?? [],
 
     isSyncing: false,
+    isLiveStreamActive: typeof window !== 'undefined' ? localStorage.getItem('finvault_live_ticker_active') === 'true' : false,
     fetchFromBackend: async () => {
       try {
         set({ isSyncing: true });
@@ -240,8 +270,13 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
           people: data.people,
           ledgerEntries: data.ledgerEntries,
           budgets: data.budgets,
+          investments: data.investments ?? [],
+          investmentTransactions: data.investmentTransactions ?? [],
           isSyncing: false,
         }));
+        if (get().isLiveStreamActive) {
+          get().startLiveStream();
+        }
       } catch (err) {
         console.error('Failed to sync from backend:', err);
         set({ isSyncing: false });
@@ -720,10 +755,51 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     },
 
     // Investments
-    addInvestment: (inv) => set((s) => ({ investments: [...s.investments, { ...inv, id: `inv_${Date.now()}` }] })),
-    addInvestmentTransaction: (tx) => {
-      const newTx: InvestmentTransaction = { ...tx, id: `tx_${Date.now()}`, createdAt: new Date().toISOString() };
+    addInvestment: async (inv) => {
+      const tempId = (inv as any).id || `inv_${Date.now()}`;
+      const newInv: Investment = { ...inv, id: tempId };
+      set((s) => ({ investments: [...s.investments, newInv] }));
+      try {
+        const saved = await apiClient.createInvestment(newInv);
+        set((s) => ({
+          investments: s.investments.map((item) => (item.id === tempId ? saved : item)),
+        }));
+      } catch (err) {
+        console.error('Backend addInvestment error:', err);
+      }
+    },
+    updateInvestment: async (id, updates) => {
+      set((s) => ({
+        investments: s.investments.map((inv) => (inv.id === id ? { ...inv, ...updates } : inv)),
+      }));
+      try {
+        await apiClient.updateInvestment(id, updates);
+      } catch (err) {
+        console.error('Backend updateInvestment error:', err);
+      }
+    },
+    deleteInvestment: async (id) => {
+      set((s) => ({
+        investments: s.investments.filter((inv) => inv.id !== id),
+      }));
+      try {
+        await apiClient.deleteInvestment(id);
+      } catch (err) {
+        console.error('Backend deleteInvestment error:', err);
+      }
+    },
+    addInvestmentTransaction: async (tx) => {
+      const tempId = `tx_${Date.now()}`;
+      const newTx: InvestmentTransaction = { ...tx, id: tempId, createdAt: new Date().toISOString() };
       set((s) => ({ investmentTransactions: [...s.investmentTransactions, newTx] }));
+      try {
+        const saved = await apiClient.recordInvestmentTransaction(newTx);
+        set((s) => ({
+          investmentTransactions: s.investmentTransactions.map((item) => (item.id === tempId ? saved : item)),
+        }));
+      } catch (err) {
+        console.error('Backend addInvestmentTransaction error:', err);
+      }
     },
     updatePriceQuote: (symbol, price, dayChangePct, isManual = false) => {
       set((s) => ({
@@ -732,6 +808,91 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
           [symbol]: { symbol, price, dayChangePct, lastUpdated: new Date().toISOString(), isManualOverride: isManual },
         },
       }));
+    },
+    bulkImportHoldings: async (holdings, mode = 'merge') => {
+      try {
+        const payload = holdings.map((h) => ({
+          symbol: h.symbol,
+          name: h.name,
+          asset_type: h.assetType || 'Stocks',
+          institution: h.institution || 'Broker',
+          quantity: Number(h.quantity),
+          avg_buy_price: Number(h.avgBuyPrice),
+          current_price: h.currentPrice ? Number(h.currentPrice) : undefined,
+          category_tag: h.categoryTag,
+          tax_section: h.taxSection,
+          notes: h.notes,
+        }));
+        const res = await apiClient.bulkImportInvestments(payload, mode);
+
+        // Update local priceQuotes immediately if provided
+        holdings.forEach((h) => {
+          if (h.currentPrice && h.currentPrice > 0) {
+            get().updatePriceQuote(h.symbol, Number(h.currentPrice), 0, false);
+          }
+        });
+
+        // Re-sync entire investment state from backend
+        await get().fetchFromBackend();
+        return { success: true, count: res.imported_count };
+      } catch (err) {
+        console.error('Failed to bulk import holdings:', err);
+        return { success: false, count: 0 };
+      }
+    },
+    syncLivePrices: async (symbols) => {
+      try {
+        const quotes = await apiClient.fetchLivePrices(symbols);
+        Object.entries(quotes).forEach(([sym, data]) => {
+          get().updatePriceQuote(sym, data.price, data.day_change_pct, false);
+        });
+      } catch (err) {
+        console.error('Failed to sync live prices:', err);
+      }
+    },
+    startLiveStream: () => {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('finvault_live_ticker_active', 'true');
+      }
+      set({ isLiveStreamActive: true });
+      const currentInvestments = get().investments;
+      const symbols = currentInvestments.map((inv) => inv.symbol);
+      if (symbols.length > 0) {
+        yahooLiveStreamer.subscribe(symbols, (tick) => {
+          const normalize = (s: string) => s.replace(/\.(NS|BO)$/i, '').trim().toUpperCase();
+          const matched = get().investments.find(
+            (inv) => normalize(inv.symbol) === normalize(tick.symbol)
+          );
+          if (matched && tick.price > 0) {
+            get().updatePriceQuote(matched.symbol, tick.price, tick.changePercent, false);
+          }
+        });
+      }
+    },
+    stopLiveStream: () => {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('finvault_live_ticker_active', 'false');
+      }
+      set({ isLiveStreamActive: false });
+      yahooLiveStreamer.disconnect();
+    },
+    toggleLiveStream: () => {
+      if (get().isLiveStreamActive) {
+        get().stopLiveStream();
+      } else {
+        get().startLiveStream();
+      }
+    },
+    syncWithMarketHours: (marketRegion, autoSync) => {
+      const isAuto = autoSync !== undefined ? autoSync : (typeof window !== 'undefined' ? localStorage.getItem('finvault_auto_market_hours') !== 'false' : true);
+      if (!isAuto) return;
+      const reg = marketRegion || (typeof window !== 'undefined' ? localStorage.getItem('finvault_market_region') || 'IN' : 'IN');
+      const status = getMarketStatus(reg);
+      if (status.isOpen && !get().isLiveStreamActive) {
+        get().startLiveStream();
+      } else if (!status.isOpen && get().isLiveStreamActive) {
+        get().stopLiveStream();
+      }
     },
 
     // Savings Goals
@@ -837,10 +998,11 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
           const message = `${card.nickname} (··${card.last4}) payment is due ${
             diff === 0 ? 'today' : `in ${diff} day${diff > 1 ? 's' : ''}`
           } (Day ${card.paymentDueDay} of month).`;
-          // Check both persisted notifications AND ones already queued this run
+          // Check persisted notifications, queued ones, AND dismissed IDs
           const alreadyExists =
             newNotifs.some((n) => n.id === notifId) ||
-            s.notifications.some((n) => n.id === notifId);
+            s.notifications.some((n) => n.id === notifId) ||
+            (s.dismissedNotificationIds || []).includes(notifId);
           if (!alreadyExists) {
             newNotifs.push({
               id: notifId,
@@ -868,7 +1030,8 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
             const message = `${pName} owes ₹${entry.amount.toLocaleString()} (Due: ${diffDays < 0 ? 'Overdue' : diffDays === 0 ? 'Today' : `in ${diffDays}d`}).`;
             const alreadyExists =
               newNotifs.some((n) => n.id === notifId) ||
-              s.notifications.some((n) => n.id === notifId);
+              s.notifications.some((n) => n.id === notifId) ||
+              (s.dismissedNotificationIds || []).includes(notifId);
             if (!alreadyExists) {
               newNotifs.push({
                 id: notifId,
@@ -901,7 +1064,8 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
             }.`;
             const alreadyExists =
               newNotifs.some((n) => n.id === notifId) ||
-              s.notifications.some((n) => n.id === notifId);
+              s.notifications.some((n) => n.id === notifId) ||
+              (s.dismissedNotificationIds || []).includes(notifId);
             if (!alreadyExists) {
               newNotifs.push({
                 id: notifId,
@@ -927,7 +1091,14 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
     },
     markNotificationAsRead: (id) => set((s) => ({ notifications: s.notifications.map((n) => (n.id === id ? { ...n, isRead: true } : n)) })),
     markAllNotificationsAsRead: () => set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, isRead: true })) })),
-    clearNotification: (id) => set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
+    clearNotification: (id) => set((s) => ({
+      notifications: s.notifications.filter((n) => n.id !== id),
+      dismissedNotificationIds: [...(s.dismissedNotificationIds || []), id],
+    })),
+    clearAllNotifications: () => set((s) => ({
+      dismissedNotificationIds: [...(s.dismissedNotificationIds || []), ...s.notifications.map((n) => n.id)],
+      notifications: [],
+    })),
 
     // Undo
     undoLastDelete: () => {
@@ -995,7 +1166,31 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
       }
     },
 
-    clearAllData: () => {
+    clearAllData: async () => {
+      // 1. Wipe backend database state
+      try {
+        await apiClient.resetAllData();
+      } catch (e) {
+        console.warn('Backend resetAllData error:', e);
+      }
+
+      // 2. Clear offline Dexie queue
+      try {
+        await offlineDb.offlineQueue.clear();
+      } catch (e) {
+        console.warn('Failed to clear offline indexedDB queue:', e);
+      }
+
+      // 3. Clear local storage cache
+      try {
+        localStorage.removeItem('finvault_finance_store_v3');
+        localStorage.removeItem('finvault_finance_store_v2');
+        localStorage.removeItem('kuber_finance_store_v2');
+      } catch (e) {
+        console.error('Failed to clear localStorage keys:', e);
+      }
+
+      // 4. Reset in-memory Zustand store
       set({
         accounts: [],
         transfers: [],
@@ -1020,12 +1215,12 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
         householdMembers: [],
         categories: DEFAULT_FIXED_CATEGORIES,
       });
+
+      // 5. Re-fetch fresh synced categories from backend
       try {
-        localStorage.removeItem('finvault_finance_store_v3');
-        localStorage.removeItem('finvault_finance_store_v2');
-        localStorage.removeItem('kuber_finance_store_v2');
+        await get().fetchFromBackend();
       } catch (e) {
-        console.error(e);
+        console.warn('Post-reset sync error:', e);
       }
     },
   };
@@ -1035,6 +1230,24 @@ export const useFinanceStore = create<FinanceState>((set, get) => {
 if (typeof window !== 'undefined') {
   // Fetch fresh dynamic state from FastAPI backend
   useFinanceStore.getState().fetchFromBackend();
+
+  // Evaluate market hours vs user live stream preference
+  const autoSync = localStorage.getItem('finvault_auto_market_hours') !== 'false';
+  const region = localStorage.getItem('finvault_market_region') || 'IN';
+  if (autoSync) {
+    useFinanceStore.getState().syncWithMarketHours(region, true);
+  } else if (localStorage.getItem('finvault_live_ticker_active') === 'true') {
+    useFinanceStore.getState().startLiveStream();
+  }
+
+  // Periodic heartbeat every 60 seconds to auto-start/stop when session opens/closes
+  setInterval(() => {
+    const isAuto = localStorage.getItem('finvault_auto_market_hours') !== 'false';
+    const reg = localStorage.getItem('finvault_market_region') || 'IN';
+    if (isAuto) {
+      useFinanceStore.getState().syncWithMarketHours(reg, true);
+    }
+  }, 60000);
 
   useFinanceStore.subscribe((state) => {
     try {
@@ -1060,6 +1273,8 @@ if (typeof window !== 'undefined') {
         sips: state.sips,
         smsInbox: state.smsInbox,
         householdMembers: state.householdMembers,
+        notifications: state.notifications,
+        dismissedNotificationIds: state.dismissedNotificationIds,
       });
       localStorage.setItem('finvault_finance_store_v3', serialized);
     } catch (e) {

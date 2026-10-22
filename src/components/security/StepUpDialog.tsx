@@ -73,7 +73,7 @@ export const StepUpDialog: React.FC<StepUpDialogProps> = ({
       subtitle={`Please verify your identity before: ${actionTitle}`}
       maxWidth="max-w-md"
     >
-      <form onSubmit={handleVerify} className="flex flex-col gap-5 text-center">
+      <form noValidate onSubmit={handleVerify} className="flex flex-col gap-5 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400">
           <ShieldAlert className="h-6 w-6" />
         </div>

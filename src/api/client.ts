@@ -14,6 +14,8 @@ import {
   Category,
   Budget,
   Transfer,
+  Investment,
+  InvestmentTransaction,
 } from '../types';
 
 const API_BASE = '/api';
@@ -194,6 +196,44 @@ export function toFrontendBudget(b: any): Budget {
   };
 }
 
+export function toFrontendInvestment(b: any): Investment {
+  return {
+    id: b.id,
+    symbol: b.symbol,
+    name: b.name,
+    assetType: b.assetType ?? b.asset_type,
+    taxSection: b.taxSection ?? b.tax_section ?? undefined,
+    notes: b.notes ?? undefined,
+    institution: b.institution ?? undefined,
+    interestRate: b.interestRate != null ? Number(b.interestRate) : (b.interest_rate != null ? Number(b.interest_rate) : undefined),
+    maturityDate: b.maturityDate ?? b.maturity_date ?? undefined,
+    tenureYears: b.tenureYears != null ? Number(b.tenureYears) : (b.tenure_years != null ? Number(b.tenure_years) : undefined),
+    compoundingFrequency: b.compoundingFrequency ?? b.compounding_frequency ?? undefined,
+    monthlyDeposit: b.monthlyDeposit != null ? Number(b.monthlyDeposit) : (b.monthly_deposit != null ? Number(b.monthly_deposit) : undefined),
+    sipDay: b.sipDay != null ? Number(b.sipDay) : (b.sip_day != null ? Number(b.sip_day) : undefined),
+    payoutFrequency: b.payoutFrequency ?? b.payout_frequency ?? undefined,
+    creditRating: b.creditRating ?? b.credit_rating ?? undefined,
+    categoryTag: b.categoryTag ?? b.category_tag ?? undefined,
+    unitsOrGrams: b.unitsOrGrams != null ? Number(b.unitsOrGrams) : (b.units_or_grams != null ? Number(b.units_or_grams) : undefined),
+    isSipActive: b.isSipActive !== undefined ? Boolean(b.isSipActive) : (b.is_sip_active !== undefined ? Boolean(b.is_sip_active) : true),
+    isDeleted: Boolean(b.isDeleted ?? b.is_deleted),
+  };
+}
+
+export function toFrontendInvestmentTransaction(b: any): InvestmentTransaction {
+  return {
+    id: b.id,
+    investmentId: b.investmentId ?? b.investment_id,
+    type: b.type,
+    quantity: Number(b.quantity || 0),
+    price: Number(b.price || 0),
+    fees: Number(b.fees || 0),
+    date: b.date,
+    notes: b.notes ?? undefined,
+    createdAt: b.createdAt ?? b.created_at ?? new Date().toISOString(),
+  };
+}
+
 // ========================
 // API Service Methods
 // ========================
@@ -209,6 +249,8 @@ export interface SyncDataResult {
   ledgerEntries: LedgerEntry[];
   categories: Category[];
   budgets: Budget[];
+  investments: Investment[];
+  investmentTransactions: InvestmentTransaction[];
 }
 
 export const apiClient = {
@@ -234,6 +276,8 @@ export const apiClient = {
       ledgerEntries: (raw.ledgerEntries || raw.ledger_entries || []).map(toFrontendLedgerEntry),
       categories: (raw.categories || []).map(toFrontendCategory),
       budgets: (raw.budgets || []).map(toFrontendBudget),
+      investments: (raw.investments || []).map(toFrontendInvestment),
+      investmentTransactions: (raw.investmentTransactions || raw.investment_transactions || []).map(toFrontendInvestmentTransaction),
     };
   },
 
@@ -546,6 +590,98 @@ export const apiClient = {
     return toFrontendBudget(res);
   },
 
+  // Investments & Portfolio
+  async getInvestments(): Promise<Investment[]> {
+    const raw = await request<any[]>('/investments');
+    return raw.map(toFrontendInvestment);
+  },
+
+  async createInvestment(inv: Partial<Investment>): Promise<Investment> {
+    const payload = {
+      id: inv.id,
+      symbol: inv.symbol,
+      name: inv.name,
+      asset_type: inv.assetType,
+      institution: inv.institution || null,
+      interest_rate: inv.interestRate ?? null,
+      maturity_date: inv.maturityDate || null,
+      tenure_years: inv.tenureYears ?? null,
+      compounding_frequency: inv.compoundingFrequency || null,
+      monthly_deposit: inv.monthlyDeposit ?? null,
+      sip_day: inv.sipDay ?? null,
+      payout_frequency: inv.payoutFrequency || null,
+      credit_rating: inv.creditRating || null,
+      category_tag: inv.categoryTag || null,
+      units_or_grams: inv.unitsOrGrams ?? null,
+      is_sip_active: inv.isSipActive ?? true,
+      tax_section: inv.taxSection || null,
+      notes: inv.notes || null,
+    };
+    const res = await request<any>('/investments', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return toFrontendInvestment(res);
+  },
+
+  async updateInvestment(id: string, updates: Partial<Investment>): Promise<Investment> {
+    const payload: any = {};
+    if (updates.symbol !== undefined) payload.symbol = updates.symbol;
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.assetType !== undefined) payload.asset_type = updates.assetType;
+    if (updates.institution !== undefined) payload.institution = updates.institution;
+    if (updates.interestRate !== undefined) payload.interest_rate = updates.interestRate;
+    if (updates.maturityDate !== undefined) payload.maturity_date = updates.maturityDate;
+    if (updates.tenureYears !== undefined) payload.tenure_years = updates.tenureYears;
+    if (updates.compoundingFrequency !== undefined) payload.compounding_frequency = updates.compoundingFrequency;
+    if (updates.monthlyDeposit !== undefined) payload.monthly_deposit = updates.monthlyDeposit;
+    if (updates.sipDay !== undefined) payload.sip_day = updates.sipDay;
+    if (updates.payoutFrequency !== undefined) payload.payout_frequency = updates.payoutFrequency;
+    if (updates.creditRating !== undefined) payload.credit_rating = updates.creditRating;
+    if (updates.categoryTag !== undefined) payload.category_tag = updates.categoryTag;
+    if (updates.unitsOrGrams !== undefined) payload.units_or_grams = updates.unitsOrGrams;
+    if (updates.isSipActive !== undefined) payload.is_sip_active = updates.isSipActive;
+    if (updates.taxSection !== undefined) payload.tax_section = updates.taxSection;
+    if (updates.notes !== undefined) payload.notes = updates.notes;
+
+    const res = await request<any>(`/investments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    return toFrontendInvestment(res);
+  },
+
+  async deleteInvestment(id: string): Promise<void> {
+    await request<void>(`/investments/${id}`, { method: 'DELETE' });
+  },
+
+  async getInvestmentTransactions(): Promise<InvestmentTransaction[]> {
+    const raw = await request<any[]>('/investments/transactions');
+    return raw.map(toFrontendInvestmentTransaction);
+  },
+
+  async recordInvestmentTransaction(tx: Omit<InvestmentTransaction, 'id' | 'createdAt'> & { id?: string }): Promise<InvestmentTransaction> {
+    const payload = {
+      id: tx.id,
+      investment_id: tx.investmentId,
+      type: tx.type,
+      quantity: tx.quantity,
+      price: tx.price,
+      fees: tx.fees || 0,
+      date: tx.date,
+      notes: tx.notes || null,
+    };
+    const res = await request<any>('/investments/transactions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return toFrontendInvestmentTransaction(res);
+  },
+
+  async deleteInvestmentTransaction(id: string): Promise<void> {
+    await request<void>(`/investments/transactions/${id}`, { method: 'DELETE' });
+  },
+
   // Auth Methods
   async login(email: string, password: string): Promise<any> {
     return await request<any>('/auth/login', {
@@ -693,4 +829,72 @@ export const apiClient = {
   }> {
     return await request<any>('/reminders/status');
   },
+
+  // Holdings Sync & Free Broker Integration
+  async bulkImportInvestments(
+    holdings: Array<{
+      symbol: string;
+      name: string;
+      asset_type: string;
+      institution?: string;
+      quantity: number;
+      avg_buy_price: number;
+      current_price?: number;
+      category_tag?: string;
+      tax_section?: string;
+      notes?: string;
+    }>,
+    mode: 'merge' | 'replace' = 'merge'
+  ): Promise<{ success: boolean; imported_count: number; message: string }> {
+    return await request<any>('/investments/import/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ holdings, mode }),
+    });
+  },
+
+  async syncBrokerHoldings(data: {
+    broker: 'dhan' | 'upstox' | 'angelone';
+    accessToken: string;
+    clientId?: string;
+    pinOrTotp?: string;
+  }): Promise<{
+    success: boolean;
+    broker: string;
+    holdings: Array<{
+      symbol: string;
+      name: string;
+      asset_type: string;
+      institution?: string;
+      quantity: number;
+      avg_buy_price: number;
+      current_price?: number;
+      category_tag?: string;
+    }>;
+    message: string;
+  }> {
+    return await request<any>('/investments/sync/broker', {
+      method: 'POST',
+      body: JSON.stringify({
+        broker: data.broker,
+        access_token: data.accessToken,
+        client_id: data.clientId || null,
+        pin_or_totp: data.pinOrTotp || null,
+      }),
+    });
+  },
+
+  async fetchLivePrices(symbols?: string[]): Promise<Record<string, { price: number; day_change_pct: number; last_updated: string; name?: string }>> {
+    const res = await request<any>('/investments/prices/live', {
+      method: 'POST',
+      body: JSON.stringify({ symbols: symbols || [] }),
+    });
+    return res.quotes || {};
+  },
+
+  async resetAllData(): Promise<{ success: boolean; message: string }> {
+    return await request<{ success: boolean; message: string }>('/backup/reset-all-data', {
+      method: 'POST',
+    });
+  },
 };
+

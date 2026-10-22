@@ -386,9 +386,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  updateProfile: (name, email) => {
-    set((state) => ({
-      user: state.user ? { ...state.user, name, email } : null,
-    }));
+  updateProfile: (_name, _email) => {
+    // Both username and email are permanent once registered and cannot be changed.
   },
 }));

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 from sqlalchemy import (
-    Column, String, Boolean, Integer, DateTime, Date, ForeignKey, 
+    Column, String, Boolean, Integer, Float, DateTime, Date, ForeignKey, 
     Index, Text, Table, Numeric
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -42,6 +42,7 @@ class User(Base):
     email_encrypted = Column(Text, nullable=False)
     name_encrypted = Column(Text, nullable=False)
     email_hash = Column(String(64), unique=True, index=True, nullable=False)
+    username_hash = Column(String(64), unique=True, index=True, nullable=True)
     password_hash = Column(String(255), nullable=False)
     two_factor_enabled = Column(Boolean, default=False, nullable=False)
     two_factor_secret_encrypted = Column(Text, nullable=True)
@@ -416,6 +417,18 @@ class Investment(Base):
     asset_type = Column(String(30), nullable=False)
     tax_section = Column(String(20), nullable=True)  # 80C, 80D, etc.
     notes_encrypted = Column(Text, nullable=True)
+    institution = Column(String(100), nullable=True)
+    interest_rate = Column(Float, nullable=True)
+    maturity_date = Column(String(30), nullable=True)
+    tenure_years = Column(Float, nullable=True)
+    compounding_frequency = Column(String(30), nullable=True)
+    monthly_deposit = Column(Float, nullable=True)
+    sip_day = Column(Integer, nullable=True)
+    payout_frequency = Column(String(30), nullable=True)
+    credit_rating = Column(String(30), nullable=True)
+    category_tag = Column(String(50), nullable=True)
+    units_or_grams = Column(Float, nullable=True)
+    is_sip_active = Column(Boolean, default=True, nullable=True)
     is_deleted = Column(Boolean, default=False, nullable=False)
     user = relationship("User", back_populates="investments")
 

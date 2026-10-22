@@ -40,14 +40,37 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none';"
     return response
 
+from fastapi.exceptions import RequestValidationError
+
+# Request Validation Exception Handler
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for err in exc.errors():
+        msg = err.get("msg", "")
+        if msg.startswith("Value error, "):
+            msg = msg[len("Value error, "):]
+        loc = [str(x) for x in err.get("loc", []) if str(x) != "body"]
+        field = loc[-1] if loc else "field"
+        errors.append({"field": field, "message": msg})
+    
+    first_msg = errors[0]["message"] if errors else "Invalid input data provided."
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": first_msg, "errors": errors}
+    )
+
 # Centralized Exception Handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     import traceback
     traceback.print_exc()
+    msg = str(exc)
+    if any(k in msg.lower() for k in ["postgres", "psycopg", "sql", "syntax error", "table", "column"]):
+        msg = "An internal server error occurred. Please try again."
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": str(exc)}
+        content={"detail": msg}
     )
 
 # Include Routers
